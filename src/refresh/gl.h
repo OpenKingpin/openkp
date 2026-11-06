@@ -356,6 +356,7 @@ typedef struct {
     int             numtris;
     int             numindices;
     int             numskins;
+    byte            subobject;
     uint16_t        *indices;
     maliasvert_t    *verts;
     maliastc_t      *tcoords;

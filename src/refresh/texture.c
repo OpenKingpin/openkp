@@ -841,8 +841,8 @@ void IMG_Load(image_t *image, byte *pic)
     width = image->upload_width;
     height = image->upload_height;
 
-    // load small pics onto the scrap
-    if (image->type == IT_PIC && width < 64 && height < 64 &&
+    // load small pics onto the scrap (repeating textures must have their own texture)
+    if (image->type == IT_PIC && !(image->flags & IF_REPEAT) && width < 64 && height < 64 &&
         gl_noscrap->integer == 0 && Scrap_AllocBlock(width, height, &s, &t)) {
         src = pic;
         dst = &scrap_data[(t * SCRAP_BLOCK_WIDTH + s) * 4];
@@ -1269,6 +1269,8 @@ void GL_InitImages(void)
     gl_noscrap = Cvar_Get("gl_noscrap", "0", CVAR_FILES);
     gl_round_down = Cvar_Get("gl_round_down", "0", CVAR_FILES);
     gl_picmip = Cvar_Get("gl_picmip", "0", CVAR_FILES);
+    // Kingpin servers treat a missing or tiny value as a texture cheat.
+    Cvar_Get("gl_maxtexsize", "256", CVAR_ARCHIVE);
     gl_downsample_skins = Cvar_Get("gl_downsample_skins", "1", CVAR_FILES);
     gl_gamma_scale_pics = Cvar_Get("gl_gamma_scale_pics", "0", CVAR_FILES);
     gl_upscale_pcx = Cvar_Get("gl_upscale_pcx", "0", CVAR_FILES);

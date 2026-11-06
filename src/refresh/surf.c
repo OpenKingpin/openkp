@@ -1133,8 +1133,16 @@ void GL_LoadWorld(const char *name)
 
     // setup drawflags, etc
     for (i = n64surfs = 0, surf = bsp->faces; i < bsp->numfaces; i++, surf++) {
+        int flags = surf->texinfo->c.flags;
+
+        if (flags & (SURF_ALPHA | SURF_WNDW33))
+            flags |= SURF_TRANS33;
+        if (flags & SURF_WNDW66)
+            flags |= SURF_TRANS66;
+        flags &= ~SURF_KP_N64_MASK;
+
         // hack surface flags into drawflags for faster access
-        surf->drawflags |= surf->texinfo->c.flags & ~DSURF_PLANEBACK;
+        surf->drawflags |= flags & ~DSURF_PLANEBACK;
 
         // clear statebits from previous load
         surf->statebits = GLS_DEFAULT;

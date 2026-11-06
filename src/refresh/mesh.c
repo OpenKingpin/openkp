@@ -1059,6 +1059,9 @@ void GL_DrawAliasModel(const model_t *model)
 #endif
     for (int i = 0; i < model->nummeshes; i++) {
         const maliasmesh_t *mesh = &model->meshes[i];
+
+        if (ent->hidden_parts & BIT(mesh->subobject))
+            continue;
         tessfunc(mesh);
         draw_alias_mesh(mesh->indices, mesh->numindices,
                         mesh->tcoords, mesh->numverts,

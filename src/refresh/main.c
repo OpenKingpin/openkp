@@ -596,7 +596,8 @@ static void GL_DrawEntities(entity_t *ent)
 
         model = MOD_ForHandle(ent->model);
         if (!model) {
-            GL_DrawNullModel();
+            if (gl_showorigins->integer)
+                GL_DrawNullModel();
             continue;
         }
 
@@ -1124,7 +1125,7 @@ static void GL_Register(void)
     gl_showbloom = Cvar_Get("gl_showbloom", "0", CVAR_CHEAT);
 #if USE_DEBUG
     gl_showstats = Cvar_Get("gl_showstats", "0", 0);
-    gl_showscrap = Cvar_Get("gl_showscrap", "0", 0);
+    gl_showscrap = Cvar_Get("gl_showscrap", "0", CVAR_CHEAT);
     gl_nobind = Cvar_Get("gl_nobind", "0", CVAR_CHEAT);
     gl_novbo = Cvar_Get("gl_novbo", "0", CVAR_FILES);
     gl_test = Cvar_Get("gl_test", "0", 0);
@@ -1132,6 +1133,10 @@ static void GL_Register(void)
     gl_cull_nodes = Cvar_Get("gl_cull_nodes", "1", 0);
     gl_cull_models = Cvar_Get("gl_cull_models", "1", 0);
     gl_clear = Cvar_Get("gl_clear", "0", 0);
+    // Kingpin servers read these. Anything but 0 is a cheat.
+    Cvar_Get("r_showbbox", "0", 0);
+    Cvar_Get("r_debug_lighting", "0", 0);
+    Cvar_Get("r_drawworld", "1", 0);
     gl_clearcolor = Cvar_Get("gl_clearcolor", "black", 0);
     gl_clearcolor->changed = gl_clearcolor_changed;
     gl_clearcolor->generator = Com_Color_g;

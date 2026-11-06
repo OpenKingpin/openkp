@@ -19,6 +19,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "gl.h"
 #include "format/md2.h"
+#include "format/mdx.h"
 #if USE_MD3
 #include "format/md3.h"
 #endif
@@ -525,6 +526,354 @@ static int MOD_LoadMD2(model_t *model, const void *rawdata, size_t length)
         dst_frame++;
     }
 
+    return Q_ERR_SUCCESS;
+}
+
+static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
+                             const uint16_t *vert_index, const float *vert_s,
+                             const float *vert_t, const byte *vert_obj,
+                             int numindices, const byte *rawdata,
+                             const dmdxheader_t *header)
+{
+    uint16_t *remap, *final_index;
+    int i, j, k, val, numverts, local;
+    const char *src_skin;
+    const dmd2frame_t *src_frame;
+
+    remap = Z_Malloc(numindices * sizeof(remap[0]));
+    final_index = Z_Malloc(numindices * sizeof(final_index[0]));
+    for (i = 0; i < numindices; i++)
+        remap[i] = 0xFFFF;
+
+    local = 0;
+    numverts = 0;
+    for (i = 0; i < numindices; i++) {
+        if (vert_obj[i] != obj)
+            continue;
+        local++;
+        if (remap[i] != 0xFFFF)
+            continue;
+        for (j = i + 1; j < numindices; j++) {
+            if (vert_obj[j] != obj)
+                continue;
+            if (vert_index[i] == vert_index[j] &&
+                vert_s[i] == vert_s[j] && vert_t[i] == vert_t[j]) {
+                remap[j] = i;
+                final_index[j] = numverts;
+            }
+        }
+        remap[i] = i;
+        final_index[i] = numverts++;
+    }
+
+    if (local < 3 || numverts > TESS_MAX_VERTICES) {
+        Z_Free(remap);
+        Z_Free(final_index);
+        Com_SetLastError(local < 3 ? "Too few MDX triangles" : "Too many MDX verts");
+        return Q_ERR_INVALID_FORMAT;
+    }
+
+    mesh->subobject = obj;
+    mesh->numtris = local / 3;
+    mesh->numindices = local;
+    mesh->numverts = numverts;
+    mesh->numskins = header->num_skins;
+    if (!MOD_AllocMesh(model, mesh)) {
+        Z_Free(remap);
+        Z_Free(final_index);
+        return Q_ERR(ENOMEM);
+    }
+
+    k = 0;
+    for (i = 0; i < numindices; i++) {
+        if (vert_obj[i] != obj)
+            continue;
+        mesh->indices[k++] = final_index[i];
+    }
+
+    src_skin = (const char *)rawdata + header->ofs_skins;
+    for (i = 0; i < (int)header->num_skins; i++) {
+#if USE_MD5
+        char *skinname = mesh->skinnames[i];
+#else
+        maliasskinname_t skinname;
+#endif
+        if (!Q_memccpy(skinname, src_skin, 0, sizeof(maliasskinname_t))) {
+            Z_Free(remap);
+            Z_Free(final_index);
+            return Q_ERR_STRING_TRUNCATED;
+        }
+        mesh->skins[i] = IMG_Find(skinname, IT_SKIN, IF_NONE);
+        src_skin += MDX_MAX_SKINNAME;
+    }
+
+    for (i = 0; i < numindices; i++) {
+        if (vert_obj[i] != obj || remap[i] != i)
+            continue;
+        mesh->tcoords[final_index[i]].st[0] = vert_s[i];
+        mesh->tcoords[final_index[i]].st[1] = vert_t[i];
+    }
+
+    src_frame = (const dmd2frame_t *)(rawdata + header->ofs_frames);
+    for (j = 0; j < (int)header->num_frames; j++) {
+        for (i = 0; i < numindices; i++) {
+            const dmd2trivertx_t *src_vert;
+            maliasvert_t *dst_vert;
+
+            if (vert_obj[i] != obj || remap[i] != i)
+                continue;
+            src_vert = &src_frame->verts[vert_index[i]];
+            dst_vert = &mesh->verts[j * numverts + final_index[i]];
+            dst_vert->pos[0] = src_vert->v[0];
+            dst_vert->pos[1] = src_vert->v[1];
+            dst_vert->pos[2] = src_vert->v[2];
+            val = src_vert->lightnormalindex;
+            if (val >= NUMVERTEXNORMALS) {
+                dst_vert->norm[0] = 0;
+                dst_vert->norm[1] = 0;
+            } else {
+                dst_vert->norm[0] = gl_static.latlngtab[val][0];
+                dst_vert->norm[1] = gl_static.latlngtab[val][1];
+            }
+        }
+        src_frame = (const dmd2frame_t *)((const byte *)src_frame + header->framesize);
+    }
+
+    Z_Free(remap);
+    Z_Free(final_index);
+    return Q_ERR_SUCCESS;
+}
+
+static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
+{
+    dmdxheader_t header;
+    const int32_t *cmd;
+    uint32_t cmdleft;
+    dmd2frame_t *src_frame;
+    maliasframe_t *dst_frame;
+    maliasmesh_t *mesh;
+    uint16_t *vert_index, *cmd_index;
+    float *vert_s, *vert_t, *cmd_s, *cmd_t;
+    byte *vert_obj;
+    int numindices, i, j, k, val;
+    vec3_t mins, maxs;
+    const char *err;
+
+    if (length < sizeof(header))
+        return Q_ERR_FILE_TOO_SMALL;
+
+    LittleBlock(&header, rawdata, sizeof(header));
+    if (header.ident != MDX_IDENT || header.version != MDX_VERSION)
+        return Q_ERR_UNKNOWN_FORMAT;
+
+    if (header.num_tris < 1 || header.num_xyz < 3 || header.num_frames < 1 || header.num_glcmds < 4) {
+        model->type = MOD_EMPTY;
+        return Q_ERR_SUCCESS;
+    }
+
+    err = NULL;
+    if (header.num_xyz > MDX_MAX_VERTS || header.num_tris > MDX_MAX_TRIANGLES ||
+        header.num_frames > MDX_MAX_FRAMES || header.num_skins > MDX_MAX_SKINS)
+        err = "MDX header limit";
+    else if (header.framesize != (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header.num_xyz * sizeof(dmd2trivertx_t)))
+        err = "Bad MDX frame size";
+    else if ((uint64_t)header.ofs_frames + (uint64_t)header.framesize * header.num_frames > length)
+        err = "Bad MDX frame offset";
+    else if ((uint64_t)header.ofs_glcmds + (uint64_t)header.num_glcmds * 4 > length)
+        err = "Bad MDX glcmd offset";
+    else if ((uint64_t)header.ofs_skins + (uint64_t)header.num_skins * MDX_MAX_SKINNAME > length)
+        err = "Bad MDX skin offset";
+    if (err) {
+        Com_SetLastError(err);
+        return Q_ERR_INVALID_FORMAT;
+    }
+
+    vert_index = Z_Malloc(header.num_tris * 3 * sizeof(vert_index[0]));
+    vert_s = Z_Malloc(header.num_tris * 3 * sizeof(vert_s[0]));
+    vert_t = Z_Malloc(header.num_tris * 3 * sizeof(vert_t[0]));
+    vert_obj = Z_Malloc(header.num_tris * 3);
+    cmd_index = Z_Malloc(header.num_glcmds * sizeof(cmd_index[0]));
+    cmd_s = Z_Malloc(header.num_glcmds * sizeof(cmd_s[0]));
+    cmd_t = Z_Malloc(header.num_glcmds * sizeof(cmd_t[0]));
+    numindices = 0;
+
+    cmd = (const int32_t *)((const byte *)rawdata + header.ofs_glcmds);
+    cmdleft = header.num_glcmds;
+    while (cmdleft && !err) {
+        int count = LittleLong(*cmd++);
+        int num, base, fan, sub;
+
+        cmdleft--;
+        if (!count)
+            break;
+        if (!cmdleft) {
+            err = "Truncated MDX glcmd";
+            break;
+        }
+        sub = LittleLong(*cmd++);
+        cmdleft--;
+        if ((unsigned)sub >= 8)
+            sub = 0;
+        num = abs(count);
+        fan = count < 0;
+        if (num < 3 || cmdleft < (uint32_t)num * 3) {
+            err = "Truncated MDX glcmd";
+            break;
+        }
+        for (i = 0; i < num; i++) {
+            int xyz;
+
+            cmd_s[i] = LittleFloat(*(const float *)cmd++);
+            cmd_t[i] = LittleFloat(*(const float *)cmd++);
+            xyz = LittleLong(*cmd++);
+            cmdleft -= 3;
+            if (xyz < 0 || xyz >= (int)header.num_xyz) {
+                err = "Bad MDX vertex";
+                break;
+            }
+            cmd_index[i] = xyz;
+        }
+        if (err)
+            break;
+        for (base = 0; base < num - 2; base++) {
+            int order[3];
+
+            if (numindices + 3 > (int)header.num_tris * 3) {
+                err = "Too many MDX triangles";
+                break;
+            }
+            if (fan) {
+                order[0] = 0;
+                order[1] = base + 1;
+                order[2] = base + 2;
+            } else if (base & 1) {
+                order[0] = base + 1;
+                order[1] = base;
+                order[2] = base + 2;
+            } else {
+                order[0] = base;
+                order[1] = base + 1;
+                order[2] = base + 2;
+            }
+            for (k = 0; k < 3; k++) {
+                vert_index[numindices] = cmd_index[order[k]];
+                vert_s[numindices] = cmd_s[order[k]];
+                vert_t[numindices] = cmd_t[order[k]];
+                vert_obj[numindices] = sub;
+                numindices++;
+            }
+        }
+    }
+
+    if (!err && numindices < 3)
+        err = "Too few MDX triangles";
+
+    if (err) {
+        Com_SetLastError(err);
+        Z_Free(vert_index);
+        Z_Free(vert_s);
+        Z_Free(vert_t);
+        Z_Free(vert_obj);
+        Z_Free(cmd_index);
+        Z_Free(cmd_s);
+        Z_Free(cmd_t);
+        return Q_ERR_INVALID_FORMAT;
+    }
+
+    {
+        int objects[8], nobjects, m, ret;
+
+        nobjects = 0;
+        for (k = 0; k < 8; k++) {
+            int n = 0;
+
+            for (i = 0; i < numindices; i++)
+                if (vert_obj[i] == k)
+                    n++;
+            if (n >= 3)
+                objects[nobjects++] = k;
+        }
+        if (!nobjects) {
+            Com_SetLastError("Too few MDX triangles");
+            Z_Free(vert_index);
+            Z_Free(vert_s);
+            Z_Free(vert_t);
+            Z_Free(vert_obj);
+            Z_Free(cmd_index);
+            Z_Free(cmd_s);
+            Z_Free(cmd_t);
+            return Q_ERR_INVALID_FORMAT;
+        }
+
+        MOD_HunkBegin(model);
+        model->type = MOD_ALIAS;
+        model->nummeshes = nobjects;
+        model->numframes = header.num_frames;
+        model->meshes = MOD_CpuMalloc(sizeof(model->meshes[0]) * nobjects);
+        model->frames = MOD_CpuMalloc(sizeof(model->frames[0]) * header.num_frames);
+        if (!model->meshes || !model->frames) {
+            Z_Free(vert_index);
+            Z_Free(vert_s);
+            Z_Free(vert_t);
+            Z_Free(vert_obj);
+            Z_Free(cmd_index);
+            Z_Free(cmd_s);
+            Z_Free(cmd_t);
+            return Q_ERR(ENOMEM);
+        }
+
+        for (m = 0; m < nobjects; m++) {
+            ret = MOD_LoadMDXObject(model, &model->meshes[m], objects[m],
+                                    vert_index, vert_s, vert_t, vert_obj,
+                                    numindices, rawdata, &header);
+            if (ret) {
+                Z_Free(vert_index);
+                Z_Free(vert_s);
+                Z_Free(vert_t);
+                Z_Free(vert_obj);
+                Z_Free(cmd_index);
+                Z_Free(cmd_s);
+                Z_Free(cmd_t);
+                return ret;
+            }
+        }
+    }
+
+    src_frame = (dmd2frame_t *)((byte *)rawdata + header.ofs_frames);
+    dst_frame = model->frames;
+    for (j = 0; j < (int)header.num_frames; j++) {
+        LittleVector(src_frame->scale, dst_frame->scale);
+        LittleVector(src_frame->translate, dst_frame->translate);
+        ClearBounds(mins, maxs);
+        for (k = 0; k < model->nummeshes; k++) {
+            mesh = &model->meshes[k];
+            for (i = 0; i < mesh->numverts; i++) {
+                maliasvert_t *dst_vert = &mesh->verts[j * mesh->numverts + i];
+
+                for (val = 0; val < 3; val++) {
+                    if (dst_vert->pos[val] < mins[val])
+                        mins[val] = dst_vert->pos[val];
+                    if (dst_vert->pos[val] > maxs[val])
+                        maxs[val] = dst_vert->pos[val];
+                }
+            }
+        }
+        VectorVectorScale(mins, dst_frame->scale, mins);
+        VectorVectorScale(maxs, dst_frame->scale, maxs);
+        dst_frame->radius = RadiusFromBounds(mins, maxs);
+        VectorAdd(mins, dst_frame->translate, dst_frame->bounds[0]);
+        VectorAdd(maxs, dst_frame->translate, dst_frame->bounds[1]);
+        src_frame = (dmd2frame_t *)((byte *)src_frame + header.framesize);
+        dst_frame++;
+    }
+
+    Z_Free(vert_index);
+    Z_Free(vert_s);
+    Z_Free(vert_t);
+    Z_Free(vert_obj);
+    Z_Free(cmd_index);
+    Z_Free(cmd_s);
+    Z_Free(cmd_t);
     return Q_ERR_SUCCESS;
 }
 
@@ -1600,6 +1949,9 @@ qhandle_t R_RegisterModel(const char *name)
     switch (LittleLong(*(uint32_t *)rawdata)) {
     case MD2_IDENT:
         load = MOD_LoadMD2;
+        break;
+    case MDX_IDENT:
+        load = MOD_LoadMDX;
         break;
 #if USE_MD3
     case MD3_IDENT:

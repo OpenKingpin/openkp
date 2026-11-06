@@ -66,6 +66,7 @@ typedef struct entity_s {
 
     qhandle_t   skin;           // NULL for inline skin
     float       scale;
+    byte        hidden_parts;   // Kingpin subobjects to skip
 
     struct entity_s *next;
 } entity_t;
@@ -228,6 +229,8 @@ void    R_SetScale(float scale);
 void    R_DrawChar(int x, int y, int flags, int ch, qhandle_t font);
 int     R_DrawString(int x, int y, int flags, size_t maxChars,
                      const char *string, qhandle_t font);  // returns advanced x coord
+void    R_DrawSizedString(int x, int y, int cw, int ch, int flags,
+                          const char *string, qhandle_t font);
 bool    R_GetPicSize(int *w, int *h, qhandle_t pic);   // returns transparency bit
 void    R_DrawPic(int x, int y, qhandle_t pic);
 void    R_DrawStretchPic(int x, int y, int w, int h, qhandle_t pic);
