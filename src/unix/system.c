@@ -166,6 +166,147 @@ static void term_handler(int signum)
     terminate = signum;
 }
 
+static bool Sys_IsKingpinDir(const char *dir)
+{
+    if (!dir || !*dir)
+        return false;
+
+    char path[MAX_OSPATH];
+    struct stat st;
+
+    Q_snprintf(path, sizeof(path), "%s/main/pak0.pak", dir);
+    if (access(path, R_OK) == 0)
+        return true;
+
+    Q_snprintf(path, sizeof(path), "%s/main/PAK0.PAK", dir);
+    if (access(path, R_OK) == 0)
+        return true;
+
+    Q_snprintf(path, sizeof(path), "%s/main", dir);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+        return true;
+
+    return false;
+}
+
+static void Sys_SaveKingpinDir(const char *dir)
+{
+    const char *home = getenv("HOME");
+    if (!home || !*home || !dir || !*dir)
+        return;
+
+    char dirpath[MAX_OSPATH];
+    Q_snprintf(dirpath, sizeof(dirpath), "%s/.openkp", home);
+    mkdir(dirpath, 0755);
+
+    char filepath[MAX_OSPATH];
+    Q_snprintf(filepath, sizeof(filepath), "%s/.openkp/basedir", home);
+    FILE *f = fopen(filepath, "w");
+    if (f) {
+        fprintf(f, "%s\n", dir);
+        fclose(f);
+    }
+}
+
+static const char *Sys_DetectKingpinDir(void)
+{
+    static char found[MAX_OSPATH];
+
+    // 1. Current directory
+    if (Sys_IsKingpinDir("."))
+        return ".";
+
+    // 2. Binary directory
+    char exe_dir[MAX_OSPATH];
+    ssize_t len = readlink("/proc/self/exe", exe_dir, sizeof(exe_dir) - 1);
+    if (len > 0) {
+        exe_dir[len] = '\0';
+        char *slash = strrchr(exe_dir, '/');
+        if (slash) {
+            *slash = '\0';
+            if (Sys_IsKingpinDir(exe_dir)) {
+                Q_strlcpy(found, exe_dir, sizeof(found));
+                return found;
+            }
+        }
+    }
+
+    // 3. Persistent saved path in ~/.openkp/basedir
+    const char *home = getenv("HOME");
+    if (home && *home) {
+        char cfg_path[MAX_OSPATH];
+        Q_snprintf(cfg_path, sizeof(cfg_path), "%s/.openkp/basedir", home);
+        FILE *f = fopen(cfg_path, "r");
+        if (f) {
+            if (fgets(found, sizeof(found), f)) {
+                char *nl = strpbrk(found, "\r\n");
+                if (nl) *nl = '\0';
+                if (Sys_IsKingpinDir(found)) {
+                    fclose(f);
+                    return found;
+                }
+            }
+            fclose(f);
+        }
+    }
+
+    // 4. Known common Steam / GOG / Wine / Heroic / Lutris install paths
+    if (home && *home) {
+        static const char *candidates[] = {
+            "%s/.steam/steam/steamapps/common/Kingpin",
+            "%s/.steam/debian-installation/steamapps/common/Kingpin",
+            "%s/.steam/root/steamapps/common/Kingpin",
+            "%s/.local/share/Steam/steamapps/common/Kingpin",
+            "%s/.steam/steam/steamapps/common/Kingpin-Linux-Moly",
+            "%s/.steam/debian-installation/steamapps/common/Kingpin-Linux-Moly",
+            "%s/.local/share/Steam/steamapps/common/Kingpin-Linux-Moly",
+            "%s/GOG Games/Kingpin - Life of Crime",
+            "%s/GOG Games/Kingpin Life of Crime/game",
+            "%s/Games/Heroic/Kingpin",
+            "%s/Games/kingpin",
+            "%s/.wine/drive_c/GOG Games/Kingpin - Life of Crime",
+            "%s/.wine/drive_c/Program Files (x86)/Kingpin",
+            "%s/.wine/drive_c/Program Files/Kingpin",
+            "%s/.wine/drive_c/Kingpin",
+        };
+
+        for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+            char candidate[MAX_OSPATH];
+            Q_snprintf(candidate, sizeof(candidate), candidates[i], home);
+            if (Sys_IsKingpinDir(candidate)) {
+                Q_strlcpy(found, candidate, sizeof(found));
+                Sys_SaveKingpinDir(found);
+                Com_Printf("Auto-detected Kingpin directory: %s\n", found);
+                return found;
+            }
+        }
+    }
+
+    // 5. Prompt user if graphical display is available
+    if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
+        FILE *p = popen("zenity --file-selection --directory --title=\"Select Kingpin Installation Folder (containing main/)\" 2>/dev/null", "r");
+        if (!p) {
+            p = popen("kdialog --getexistingdirectory \"$HOME\" --title \"Select Kingpin Installation Folder (containing main/)\" 2>/dev/null", "r");
+        }
+        if (p) {
+            if (fgets(found, sizeof(found), p)) {
+                char *nl = strpbrk(found, "\r\n");
+                if (nl) *nl = '\0';
+                pclose(p);
+                if (Sys_IsKingpinDir(found)) {
+                    Sys_SaveKingpinDir(found);
+                    Com_Printf("Selected Kingpin directory: %s\n", found);
+                    return found;
+                }
+            } else {
+                pclose(p);
+            }
+        }
+    }
+
+    return DATADIR;
+}
+
 /*
 =================
 Sys_Init
@@ -185,7 +326,8 @@ void Sys_Init(void)
 
     // basedir <path>
     // allows the game to run from outside the data tree
-    sys_basedir = Cvar_Get("basedir", DATADIR, CVAR_NOSET);
+    const char *default_basedir = Sys_DetectKingpinDir();
+    sys_basedir = Cvar_Get("basedir", default_basedir, CVAR_NOSET);
 
     // homedir <path>
     // specifies per-user writable directory for demos, screenshots, etc

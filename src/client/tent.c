@@ -473,21 +473,28 @@ void CL_SmokeAndFlash(const vec3_t origin)
 {
     explosion_t *ex;
 
-    ex = CL_AllocExplosion();
-    VectorCopy(origin, ex->ent.origin);
-    ex->type = ex_misc;
-    ex->frames = 4;
-    ex->ent.flags = RF_TRANSLUCENT | RF_NOSHADOW;
-    ex->start = cl.servertime - CL_FRAMETIME;
-    ex->ent.model = cl_mod_smoke;
+    if (!cl_mod_smoke && !cl_mod_flash)
+        return;
 
-    ex = CL_AllocExplosion();
-    VectorCopy(origin, ex->ent.origin);
-    ex->type = ex_flash;
-    ex->ent.flags = RF_FULLBRIGHT;
-    ex->frames = 2;
-    ex->start = cl.servertime - CL_FRAMETIME;
-    ex->ent.model = cl_mod_flash;
+    if (cl_mod_smoke) {
+        ex = CL_AllocExplosion();
+        VectorCopy(origin, ex->ent.origin);
+        ex->type = ex_misc;
+        ex->frames = 4;
+        ex->ent.flags = RF_TRANSLUCENT | RF_NOSHADOW;
+        ex->start = cl.servertime - CL_FRAMETIME;
+        ex->ent.model = cl_mod_smoke;
+    }
+
+    if (cl_mod_flash) {
+        ex = CL_AllocExplosion();
+        VectorCopy(origin, ex->ent.origin);
+        ex->type = ex_flash;
+        ex->ent.flags = RF_FULLBRIGHT;
+        ex->frames = 2;
+        ex->start = cl.servertime - CL_FRAMETIME;
+        ex->ent.model = cl_mod_flash;
+    }
 }
 
 static void CL_AddExplosions(void)
@@ -577,7 +584,8 @@ static void CL_AddExplosions(void)
             ent->oldframe = ex->baseframe + f;
             ent->backlerp = 1.0f - (frac - f);
 
-            V_AddEntity(ent);
+            if (ent->model)
+                V_AddEntity(ent);
         }
     }
 }
@@ -1261,13 +1269,18 @@ void CL_ParseTEnt(void)
     case TE_GUNSHOT:            // bullet hitting wall
     case TE_SPARKS:
     case TE_BULLET_SPARKS:
-        if (te.type == TE_GUNSHOT)
-            CL_ParticleEffect(te.pos1, te.dir, 0, 40);
-        else
-            CL_ParticleEffect(te.pos1, te.dir, 0xe0, 6);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ParticleEffect(te.pos1, te.dir, 0xdf, (te.type == TE_GUNSHOT) ? 30 : 6);
+        } else {
+            if (te.type == TE_GUNSHOT)
+                CL_ParticleEffect(te.pos1, te.dir, 0, 40);
+            else
+                CL_ParticleEffect(te.pos1, te.dir, 0xe0, 6);
+        }
 
         if (te.type != TE_SPARKS) {
-            CL_SmokeAndFlash(te.pos1);
+            if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN)
+                CL_SmokeAndFlash(te.pos1);
 
             // impact sound
             r = Q_rand() & 15;
@@ -1291,8 +1304,12 @@ void CL_ParseTEnt(void)
         break;
 
     case TE_SHOTGUN:            // bullet hitting wall
-        CL_ParticleEffect(te.pos1, te.dir, 0, 20);
-        CL_SmokeAndFlash(te.pos1);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ParticleEffect(te.pos1, te.dir, 0xdf, 30);
+        } else {
+            CL_ParticleEffect(te.pos1, te.dir, 0, 20);
+            CL_SmokeAndFlash(te.pos1);
+        }
         break;
 
     case TE_SPLASH:         // bullet hitting water

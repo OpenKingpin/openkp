@@ -57,4 +57,5 @@ extern const vid_driver_t   *vid;
 bool VID_GetFullscreen(vrect_t *rc, int *freq_p, int *depth_p);
 bool VID_GetGeometry(vrect_t *rc);
 void VID_SetGeometry(const vrect_t *rc);
+void VID_AdoptDesktop(int screen_w, int screen_h);
 void VID_ToggleFullscreen(void);

@@ -133,6 +133,14 @@ static const keyname_t keynames[] = {
 
     {"SEMICOLON", ';'}, // because a raw semicolon separates commands
 
+    // Kingpin keyname aliases
+    {"ESC", K_ESCAPE},
+    {"B_SPACE", K_BACKSPACE},
+    {"U_ARROW", K_UPARROW},
+    {"D_ARROW", K_DOWNARROW},
+    {"L_ARROW", K_LEFTARROW},
+    {"R_ARROW", K_RIGHTARROW},
+
     {NULL, 0}
 };
 
@@ -486,11 +494,108 @@ static void Key_Bindlist_f(void)
     }
 }
 
+void Key_SetDefaultBindings(void)
+{
+    Cvar_Set("freelook", "1");
+    Cvar_Set("cl_run", "1");
+
+    // Modern WASD Movement
+    Key_SetBinding('w', "+forward");
+    Key_SetBinding('s', "+back");
+    Key_SetBinding('a', "+moveleft");
+    Key_SetBinding('d', "+moveright");
+    Key_SetBinding(K_SPACE, "+moveup");
+    Key_SetBinding('c', "+movedown");
+    Key_SetBinding(K_CTRL, "+movedown");
+    Key_SetBinding(K_LCTRL, "+movedown");
+    Key_SetBinding(K_RCTRL, "+movedown");
+    Key_SetBinding(K_SHIFT, "+speed");
+    Key_SetBinding(K_LSHIFT, "+speed");
+    Key_SetBinding(K_RSHIFT, "+speed");
+
+    // Arrow keys fallback
+    Key_SetBinding(K_UPARROW, "+forward");
+    Key_SetBinding(K_DOWNARROW, "+back");
+    Key_SetBinding(K_LEFTARROW, "+left");
+    Key_SetBinding(K_RIGHTARROW, "+right");
+
+    // Mouse buttons & wheel
+    Key_SetBinding(K_MOUSE1, "+attack");
+    Key_SetBinding(K_MOUSE2, "+activate");
+    Key_SetBinding(K_MOUSE3, "+activate");
+    Key_SetBinding(K_MWHEELUP, "weapprev");
+    Key_SetBinding(K_MWHEELDOWN, "weapnext");
+
+    // Actions & interactions
+    Key_SetBinding('e', "+activate");
+    Key_SetBinding('f', "+activate");
+    Key_SetBinding('r', "reload");
+    Key_SetBinding('g', "holster");
+    Key_SetBinding('l', "flashlight");
+    Key_SetBinding('z', "scope");
+
+    // Kingpin speech keys
+    Key_SetBinding('y', "key1");
+    Key_SetBinding('q', "key2");
+    Key_SetBinding('x', "key3");
+
+    // Weapons
+    Key_SetBinding('1', "use pipe");
+    Key_SetBinding('2', "use pistol");
+    Key_SetBinding('3', "use shotgun");
+    Key_SetBinding('4', "use tommygun");
+    Key_SetBinding('5', "use heavy machinegun");
+    Key_SetBinding('6', "use grenade launcher");
+    Key_SetBinding('7', "use bazooka");
+    Key_SetBinding('8', "use flamethrower");
+    Key_SetBinding('/', "weapnext");
+
+    // Inventory & items
+    Key_SetBinding(K_TAB, "inven");
+    Key_SetBinding(K_ENTER, "invuse");
+    Key_SetBinding('[', "invprev");
+    Key_SetBinding(']', "invnext");
+    Key_SetBinding('\'', "invdrop");
+    Key_SetBinding(K_BACKSPACE, "invdrop");
+
+    // Chat
+    Key_SetBinding('t', "messagemode");
+    Key_SetBinding('v', "messagemode2");
+
+    // Function keys
+    Key_SetBinding(K_F1, "cmd help");
+    Key_SetBinding(K_F2, "menu_savegame");
+    Key_SetBinding(K_F3, "menu_loadgame");
+    Key_SetBinding(K_F4, "menu_keys");
+    Key_SetBinding(K_F5, "hud");
+    Key_SetBinding(K_F6, "echo Quick Saving...; wait; save quick");
+    Key_SetBinding(K_F9, "echo Quick Loading...; wait; load quick");
+    Key_SetBinding(K_F10, "menu_quit");
+    Key_SetBinding(K_F11, "screenshot");
+    Key_SetBinding(K_F12, "quit");
+
+    // System
+    Key_SetBinding(K_PAUSE, "pause");
+    Key_SetBinding(K_ESCAPE, "togglemenu");
+    Key_SetBinding('`', "toggleconsole");
+    Key_SetBinding('~', "toggleconsole");
+    Key_SetBinding('+', "sizeup");
+    Key_SetBinding('=', "sizeup");
+    Key_SetBinding('-', "sizedown");
+}
+
+static void Key_DefaultBinds_f(void)
+{
+    Key_SetDefaultBindings();
+    Com_Printf("Restored modern WASD default bindings.\n");
+}
+
 static const cmdreg_t c_keys[] = {
     { "bind", Key_Bind_f, Key_Bind_c },
     { "unbind", Key_Unbind_f, Key_Unbind_c },
     { "unbindall", Key_Unbindall_f },
     { "bindlist", Key_Bindlist_f },
+    { "defaultbinds", Key_DefaultBinds_f },
 
     { NULL }
 };

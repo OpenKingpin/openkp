@@ -196,6 +196,91 @@ void VID_SetGeometry(const vrect_t *rc)
     Cvar_SetByVar(vid_geometry, buffer, FROM_CODE);
 }
 
+static bool factory_geometry(const vrect_t *rc)
+{
+    const char *def;
+    size_t n;
+
+    if (rc->width == 640 && rc->height == 480)
+        return true;
+
+    def = vid_geometry->default_string;
+    if (!def || !vid_geometry->string)
+        return false;
+
+    n = strlen(def);
+    if (strncmp(vid_geometry->string, def, n))
+        return false;
+    return vid_geometry->string[n] == 0 ||
+           vid_geometry->string[n] == '+' ||
+           vid_geometry->string[n] == '-';
+}
+
+void VID_AdoptDesktop(int screen_w, int screen_h)
+{
+    vrect_t rc;
+    int w, h;
+
+    if (!vid_geometry || !vid_fullscreen || vid_fullscreen->integer)
+        return;
+    if (screen_w < 640 || screen_h < 480)
+        return;
+
+    // A span this wide and this short is two monitors glued together.
+    if (screen_w > 4096 && screen_h < 1600)
+        return;
+
+    if (!VID_GetGeometry(&rc)) {
+        rc.x = 0;
+        rc.y = 0;
+        rc.width = 640;
+        rc.height = 480;
+    }
+    if (!factory_geometry(&rc))
+        return;
+
+    w = min(screen_w & ~1, 8192);
+    h = min(screen_h & ~1, 8192);
+    if (w == rc.width && h == rc.height)
+        return;
+
+    Com_Printf("Display is %dx%d.\n", w, h);
+    rc.x = 0;
+    rc.y = 0;
+    rc.width = w;
+    rc.height = h;
+    VID_SetGeometry(&rc);
+}
+
+static void VID_Size_f(void)
+{
+    vrect_t rc;
+    int w, h;
+
+    if (Cmd_Argc() != 3) {
+        Com_Printf("Usage: vid_size <width> <height>\n");
+        return;
+    }
+
+    w = atoi(Cmd_Argv(1));
+    h = atoi(Cmd_Argv(2));
+    if (w < 320 || w > 8192 || h < 240 || h > 8192) {
+        Com_Printf("vid_size %dx%d doesn't look sane\n", w, h);
+        return;
+    }
+
+    if (!VID_GetGeometry(&rc)) {
+        rc.x = 0;
+        rc.y = 0;
+    }
+    rc.width = w;
+    rc.height = h;
+
+    if (vid_fullscreen && vid_fullscreen->integer)
+        Cvar_Set("vid_fullscreen", "0");
+    VID_SetGeometry(&rc);
+}
+
 void VID_ToggleFullscreen(void)
 {
     if (!vid_fullscreen || !_vid_fullscreen)
@@ -400,6 +485,7 @@ void CL_InitRefresh(void)
     vid_geometry->changed = vid_geometry_changed;
     vid_fullscreen->changed = vid_fullscreen_changed;
     vid_modelist->changed = vid_modelist_changed;
+    Cmd_AddCommand("vid_size", VID_Size_f);
 
     mode_changed = 0;
 
@@ -433,6 +519,7 @@ void CL_ShutdownRefresh(void)
     vid_geometry->changed = NULL;
     vid_fullscreen->changed = NULL;
     vid_modelist->changed = NULL;
+    Cmd_RemoveCommand("vid_size");
 
     R_Shutdown(true);
 

@@ -53,6 +53,7 @@ struct output {
     struct wl_list surf;
     uint32_t id;
     int scale;
+    int width, height;
     struct wl_output *wl_output;
 };
 
@@ -542,6 +543,12 @@ static void output_handle_geometry(void *data, struct wl_output *wl_output, int3
 static void output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags,
                                int32_t width, int32_t height, int32_t refresh)
 {
+    struct output *output = data;
+
+    if (flags & WL_OUTPUT_MODE_CURRENT) {
+        output->width = width;
+        output->height = height;
+    }
 }
 
 static void output_handle_done(void *data, struct wl_output *wl_output)
@@ -792,8 +799,22 @@ static bool init(void)
     }
 
     struct output *output;
-    wl_list_for_each(output, &wl.outputs, link)
+    int desk_w = 0, desk_h = 0;
+
+    wl_list_for_each(output, &wl.outputs, link) {
+        int scale = output->scale > 0 ? output->scale : 1;
+        int w = output->width / scale;
+        int h = output->height / scale;
+
         wl.scale_factor = max(wl.scale_factor, output->scale);
+        if (w >= 640 && h >= 480 && w * h > desk_w * desk_h) {
+            desk_w = w;
+            desk_h = h;
+        }
+    }
+    if (desk_w)
+        VID_AdoptDesktop(desk_w, desk_h);
+    get_default_geometry(&wl.width, &wl.height);
 
     CHECK_ERR(wl.surface = wl_compositor_create_surface(wl.compositor), "wl_compositor_create_surface");
     wl_surface_add_listener(wl.surface, &surface_listener, NULL);

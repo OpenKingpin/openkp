@@ -609,23 +609,14 @@ static void Parse_Banner(menuFrameWork_t *menu)
     }
 }
 
-static bool Parse_File(const char *path, int depth)
+static bool Parse_File(const char *path, int depth);
+
+static bool Parse_Data(char *data, int depth)
 {
-    char *raw, *data, *p, *cmd;
+    char *p, *cmd;
     int argc;
     menuFrameWork_t *menu = NULL;
-    int ret;
 
-    ret = FS_LoadFile(path, (void **)&raw);
-    if (!raw) {
-        if (ret != Q_ERR(ENOENT) || depth) {
-            Com_WPrintf("Couldn't %s %s: %s\n", depth ? "include" : "load",
-                        path, Q_ErrorString(ret));
-        }
-        return false;
-    }
-
-    data = raw;
     COM_Compress(data);
 
     while (*data) {
@@ -753,8 +744,6 @@ static bool Parse_File(const char *path, int depth)
         data = p + 1;
     }
 
-    FS_FreeFile(raw);
-
     if (menu) {
         Com_WPrintf("Menu entry without 'end' terminator\n");
         menu->free(menu);
@@ -763,7 +752,121 @@ static bool Parse_File(const char *path, int depth)
     return true;
 }
 
+static bool Parse_File(const char *path, int depth)
+{
+    char *raw;
+    int ret;
+    bool ok;
+
+    ret = FS_LoadFile(path, (void **)&raw);
+    if (!raw) {
+        if (ret != Q_ERR(ENOENT) || depth) {
+            Com_WPrintf("Couldn't %s %s: %s\n", depth ? "include" : "load",
+                        path, Q_ErrorString(ret));
+        }
+        return false;
+    }
+
+    ok = Parse_Data(raw, depth);
+    FS_FreeFile(raw);
+    return ok;
+}
+
+static const char kp_menu_default[] =
+    "background backround\n"
+    "font conchars\n"
+    "cursor ch1\n"
+    "color normal #18141098\n"
+    "color active #282018b8\n"
+    "color selection #b8861cb8\n"
+    "color disabled #7f7f7f\n"
+    "begin video\n"
+    "title \"visuals\"\n"
+    "action \"1280 x 720\" \"vid_size 1280 720\"\n"
+    "action \"1600 x 900\" \"vid_size 1600 900\"\n"
+    "action \"1920 x 1080\" \"vid_size 1920 1080\"\n"
+    "action \"2560 x 1440\" \"vid_size 2560 1440\"\n"
+    "action \"3440 x 1440\" \"vid_size 3440 1440\"\n"
+    "action \"3840 x 2160\" \"vid_size 3840 2160\"\n"
+    "values \"fullscreen\" vid_fullscreen windowed $$vid_modelist\n"
+    "toggle \"vertical sync\" gl_swapinterval\n"
+    "range \"brightness\" vid_gamma 1.3 0.5\n"
+    "pairs \"texture filter\" gl_texturemode "
+        "nearest GL_NEAREST "
+        "linear GL_LINEAR "
+        "bilinear GL_LINEAR_MIPMAP_NEAREST "
+        "trilinear GL_LINEAR_MIPMAP_LINEAR\n"
+    "values \"dynamic lights\" gl_dynamic no yes \"only switchable\"\n"
+    "values \"shadows\" gl_shadows no yes fade\n"
+    "toggle \"screen blend\" gl_polyblend\n"
+    "range \"screen size\" viewsize 40 100 10\n"
+    "range \"hud opacity\" scr_alpha 0 1\n"
+    "range \"console opacity\" con_alpha 0 1\n"
+    "values \"crosshair\" crosshair none cross dot angle\n"
+    "end\n"
+    "begin sound\n"
+    "title \"sound\"\n"
+    "values \"sound\" s_enable \"no sound\" software OpenAL\n"
+    "range \"volume\" s_volume 0 1\n"
+    "range \"music volume\" ogg_volume 0 1\n"
+    "toggle \"music\" ogg_enable\n"
+    "end\n"
+    "begin input\n"
+    "title \"mouse\"\n"
+    "field --numeric --width 8 \"sensitivity\" sensitivity\n"
+    "toggle \"free look\" freelook\n"
+    "toggle \"always run\" cl_run\n"
+    "toggle \"mouse filter\" m_filter\n"
+    "end\n"
+    "begin keys\n"
+    "title \"controls\"\n"
+    "bind \"attack\" +attack\n"
+    "bind \"activate\" +activate\n"
+    "bind \"reload\" reload\n"
+    "bind \"holster\" holster\n"
+    "bind \"flashlight\" flashlight\n"
+    "bind \"next weapon\" weapnext\n"
+    "bind \"previous weapon\" weapprev\n"
+    "bind \"forward\" +forward\n"
+    "bind \"back\" +back\n"
+    "bind \"move left\" +moveleft\n"
+    "bind \"move right\" +moveright\n"
+    "bind \"jump\" +moveup\n"
+    "bind \"crouch\" +movedown\n"
+    "bind \"run\" +speed\n"
+    "bind \"chat\" messagemode\n"
+    "bind \"team chat\" messagemode2\n"
+    "action \"weapons\" pushmenu kpweapons\n"
+    "action \"reset defaults\" defaultbinds\n"
+    "end\n"
+    "begin kpweapons\n"
+    "title \"weapons\"\n"
+    "bind \"pipe\" \"use pipe\"\n"
+    "bind \"pistol\" \"use pistol\"\n"
+    "bind \"shotgun\" \"use shotgun\"\n"
+    "bind \"tommygun\" \"use tommygun\"\n"
+    "bind \"heavy machinegun\" \"use heavy machinegun\"\n"
+    "bind \"grenade launcher\" \"use grenade launcher\"\n"
+    "bind \"bazooka\" \"use bazooka\"\n"
+    "bind \"flamethrower\" \"use flamethrower\"\n"
+    "end\n"
+    "begin downloads\n"
+    "title \"download options\"\n"
+    "toggle \"allow downloading\" allow_download\n"
+    "toggle \"maps\" allow_download_maps\n"
+    "toggle \"player models\" allow_download_players\n"
+    "toggle \"models\" allow_download_models\n"
+    "toggle \"sounds\" allow_download_sounds\n"
+    "toggle \"textures\" allow_download_textures\n"
+    "toggle \"pics\" allow_download_pics\n"
+    "end\n";
+
 void UI_LoadScript(void)
 {
+    char *copy;
+
     Parse_File("q2pro.menu", 0);
+    copy = UI_CopyString(kp_menu_default);
+    Parse_Data(copy, 0);
+    Z_Free(copy);
 }

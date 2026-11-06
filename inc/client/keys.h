@@ -142,5 +142,6 @@ void    Key_SetBinding(int keynum, const char *binding);
 const char  *Key_GetBinding(const char *binding);
 int     Key_EnumBindings(int key, const char *binding);
 void    Key_WriteBindings(qhandle_t f);
+void    Key_SetDefaultBindings(void);
 
 void    Key_WaitKey(keywaitcb_t wait, void *arg);

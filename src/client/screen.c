@@ -37,7 +37,7 @@ static struct {
     qhandle_t   loading_pic;
     bool        draw_loading;
 
-    qhandle_t   sb_pics[2][STAT_PICS];
+    qhandle_t   sb_pics[6][STAT_PICS];
     qhandle_t   inven_pic;
     qhandle_t   field_pic;
 
@@ -1356,19 +1356,24 @@ void SCR_RegisterMedia(void)
 {
     int     i;
 
-    for (i = 0; i < STAT_MINUS; i++)
-        scr.sb_pics[0][i] = R_RegisterPic(va("num_%d", i));
-    scr.sb_pics[0][i] = R_RegisterPic("num_minus");
+    static const char *const digit_prefix[] = {
+        "hud_", "ghud_", "ohud_", "rhud_", "rrhud_", "yhud_"
+    };
 
-    for (i = 0; i < STAT_MINUS; i++)
-        scr.sb_pics[1][i] = R_RegisterPic(va("anum_%d", i));
-    scr.sb_pics[1][i] = R_RegisterPic("anum_minus");
+    // Kingpin digit sets: white, green, orange, red, thick red, yellow.
+    for (int set = 0; set < 6; set++) {
+        for (i = 0; i < STAT_MINUS; i++)
+            scr.sb_pics[set][i] = R_RegisterImage(va("%s%d", digit_prefix[set], i),
+                                                  IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+        scr.sb_pics[set][i] = R_RegisterImage(va("%s-", digit_prefix[set]),
+                                              IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+    }
 
-    scr.inven_pic = R_RegisterPic("inventory");
-    scr.field_pic = R_RegisterPic("field_3");
+    scr.inven_pic = R_RegisterImage("inventory", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+    scr.field_pic = R_RegisterPic("hud_mn1");
     scr.backtile_pic = R_RegisterImage("backtile", IT_PIC, IF_PERMANENT | IF_REPEAT);
     scr.pause_pic = R_RegisterPic("pause");
-    scr.loading_pic = R_RegisterPic("loading");
+    scr.loading_pic = R_RegisterImage("loading", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
     scr.net_pic = R_RegisterPic("net");
     scr.hit_marker_pic = R_RegisterImage("marker", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
 
@@ -1566,6 +1571,7 @@ STAT PROGRAMS
 #define ICON_WIDTH  24
 #define ICON_HEIGHT 24
 #define DIGIT_WIDTH 16
+#define DIGIT_HEIGHT 24
 #define ICON_SPACE  8
 
 #define HUD_DrawString(x, y, string) \
@@ -1586,25 +1592,25 @@ STAT PROGRAMS
 #define HUD_DrawAltRightString(x, y, string) \
     SCR_DrawStringEx(x, y, UI_RIGHT | UI_XORCOLOR, MAX_STRING_CHARS, string, scr.font_pic)
 
-static void HUD_DrawNumber(int x, int y, int color, int width, int value)
+static void HUD_DrawNumberSized(int x, int y, int color, int width, int value, int dw, int dh)
 {
     char    num[16], *ptr;
     int     l;
     int     frame;
 
-    if (width < 1)
+    if (width < 1 || dw < 1 || dh < 1)
         return;
 
-    // draw number string
     if (width > 5)
         width = 5;
 
-    color &= 1;
+    if (color < 0 || color > 5 || !scr.sb_pics[color][0])
+        color = 0;
 
     l = Q_scnprintf(num, sizeof(num), "%i", value);
     if (l > width)
         l = width;
-    x += 2 + DIGIT_WIDTH * (width - l);
+    x += 2 + dw * (width - l);
 
     ptr = num;
     while (*ptr && l) {
@@ -1613,11 +1619,79 @@ static void HUD_DrawNumber(int x, int y, int color, int width, int value)
         else
             frame = *ptr - '0';
 
-        R_DrawPic(x, y, scr.sb_pics[color][frame]);
-        x += DIGIT_WIDTH;
+        if (scr.sb_pics[color][frame])
+            R_DrawStretchPic(x, y, dw, dh, scr.sb_pics[color][frame]);
+        x += dw;
         ptr++;
         l--;
     }
+}
+
+static void HUD_DrawNumber(int x, int y, int color, int width, int value)
+{
+    HUD_DrawNumberSized(x, y, color, width, value, DIGIT_WIDTH, DIGIT_HEIGHT);
+}
+
+// Kingpin's statusbar does not position these. The client does.
+static void HUD_DrawKingpinArmor(void)
+{
+    static const struct {
+        int stat;
+        int y;
+        const char *light, *heavy, *green, *yellow, *red;
+    } piece[] = {
+        { 4, 55, "armor_lt_h", "armor_hv_h", "armor_hg", "armor_hy", "armor_hr" },
+        { 5, 40, "armor_lt_b", "armor_hv_b", "armor_bg", "armor_by", "armor_br" },
+        { 6, 25, "armor_lt_l", "armor_hv_l", "armor_lg", "armor_ly", "armor_lr" },
+    };
+    int base_x = 20;
+    int base_y = scr.hud_height - 70;
+    qhandle_t pic = R_RegisterImage("armor", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+
+    if (pic)
+        R_DrawStretchPic(base_x, base_y, 48, 64, pic);
+
+    for (int i = 0; i < 3; i++) {
+        int value = cl.frame.ps.stats[piece[i].stat];
+        int amount = value;
+        const char *icon = piece[i].light;
+        const char *tint = piece[i].red;
+
+        if (value >= 1024) {
+            amount = value - 1024;
+            icon = piece[i].heavy;
+        }
+        if (value > 0) {
+            if (amount > 74)
+                tint = piece[i].green;
+            else if (amount > 48)
+                tint = piece[i].yellow;
+            pic = R_RegisterImage(icon, IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+            if (pic)
+                R_DrawStretchPic(base_x, base_y, 48, 64, pic);
+            pic = R_RegisterImage(tint, IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+            if (pic)
+                R_DrawStretchPic(base_x, base_y, 48, 64, pic);
+        }
+        HUD_DrawNumberSized(8, scr.hud_height - piece[i].y, 0, 3, amount, 8, 12);
+    }
+}
+
+static void HUD_DrawKingpinIcon(int stat, int x, int y)
+{
+    int index = cl.frame.ps.stats[stat];
+    qhandle_t pic;
+    int w, h;
+
+    if (index <= 0 || index >= cl.csr.max_images)
+        return;
+    pic = cl.image_precache[index];
+    if (!pic)
+        return;
+    R_GetPicSize(&w, &h, pic);
+    if (w < 1 || h < 1)
+        return;
+    R_DrawStretchPic(x, y, w / 2, h / 2, pic);
 }
 
 #define DISPLAY_ITEMS   17
@@ -1705,6 +1779,13 @@ static void SCR_SkipToEndif(const char **s)
             !strcmp(token, "pic") || !strcmp(token, "picn") || !strcmp(token, "color") ||
             strstr(token, "string")) {
             COM_SkipToken(s);
+            if (strstr(token, "string")) {
+                const char *p = *s;
+                while (*p == ' ')
+                    p++;
+                if (*p >= '0' && *p <= '9')
+                    COM_SkipToken(s);
+            }
             continue;
         }
 
@@ -1727,8 +1808,28 @@ static void SCR_SkipToEndif(const char **s)
         }
 
         if (!strcmp(token, "hnum")) continue;
-        if (!strcmp(token, "anum")) continue;
+        if (!strcmp(token, "anum")) {
+            const char *p = *s;
+            while (*p == ' ')
+                p++;
+            if (*p >= '0' && *p <= '9')
+                COM_SkipToken(s);
+            continue;
+        }
         if (!strcmp(token, "rnum")) continue;
+        if (!strcmp(token, "wanum") || !strcmp(token, "cnum") ||
+            !strcmp(token, "frags") || !strcmp(token, "talk") ||
+            !strcmp(token, "hire") || !strcmp(token, "bagcash"))
+            continue;
+        if (!strcmp(token, "picnote")) {
+            COM_SkipToken(s);
+            continue;
+        }
+        if (!strcmp(token, "teams")) {
+            COM_SkipToken(s);
+            COM_SkipToken(s);
+            continue;
+        }
 
         if (!strcmp(token, "if")) {
             COM_SkipToken(s);
@@ -1759,9 +1860,30 @@ static void SCR_DrawHealthBar(int x, int y, int value)
     R_DrawFill8(x + w, y, bar_width - w, h, 4);
 }
 
+// This server's statusbar uses '.' as a command break: ".yt.20 .xr.-85".
+static const char *SCR_KingpinLayout(const char *s, char *buf, size_t size)
+{
+    size_t i = 0;
+    bool quote = false;
+
+    if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN)
+        return s;
+
+    while (s[i] && i + 1 < size) {
+        char c = s[i];
+        if (c == '"')
+            quote = !quote;
+        buf[i] = (!quote && c == '.') ? ' ' : c;
+        i++;
+    }
+    buf[i] = 0;
+    return buf;
+}
+
 static void SCR_ExecuteLayoutString(const char *s)
 {
     char    buffer[MAX_QPATH];
+    char    layout[2048];
     int     x, y;
     int     value;
     char    *token;
@@ -1771,6 +1893,8 @@ static void SCR_ExecuteLayoutString(const char *s)
 
     if (!s[0])
         return;
+
+    s = SCR_KingpinLayout(s, layout, sizeof(layout));
 
     x = 0;
     y = 0;
@@ -1947,60 +2071,127 @@ static void SCR_ExecuteLayoutString(const char *s)
         }
 
         if (!strcmp(token, "hnum")) {
-            // health number
             int     color;
 
             width = 3;
             value = cl.frame.ps.stats[STAT_HEALTH];
-            if (value > 25)
-                color = 0;  // green
-            else if (value > 0)
-                color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1;     // flash
-            else
-                color = 1;
-
-            if (cl.frame.ps.stats[STAT_FLASHES] & 1)
-                R_DrawPic(x, y, scr.field_pic);
-
-            HUD_DrawNumber(x, y, color, width, value);
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+                // White above 25. Low health flashes red, then thick red.
+                if (value > 25)
+                    color = 0;
+                else
+                    color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1 ? 3 : 4;
+                HUD_DrawNumber(60, scr.hud_height - 30, color, width, value);
+                HUD_DrawKingpinArmor();
+            } else {
+                if (value > 25)
+                    color = 0;
+                else if (value > 0)
+                    color = (cl.frame.number / CL_FRAMEDIV) & 1;
+                else
+                    color = 1;
+                if (cl.frame.ps.stats[STAT_FLASHES] & 1)
+                    R_DrawPic(x, y, scr.field_pic);
+                HUD_DrawNumber(x, y, color, width, value);
+            }
             continue;
         }
 
         if (!strcmp(token, "anum")) {
-            // ammo number
             int     color;
+            const char *p = s;
+            int     icon = 0;
+
+            while (*p == ' ')
+                p++;
+            if (*p >= '0' && *p <= '9')
+                icon = Q_atoi(COM_Parse(&s));
 
             width = 3;
             value = cl.frame.ps.stats[STAT_AMMO];
-            if (value > 5)
-                color = 0;  // green
-            else if (value >= 0)
-                color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1;     // flash
-            else
-                continue;   // negative number = don't show
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+                if (icon > 0)
+                    HUD_DrawKingpinIcon(icon, scr.hud_width - 25, scr.hud_height - 30);
+                if (value < 0)
+                    continue;
+                HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 20, 0, width, value);
+            } else {
+                if (value > 5)
+                    color = 0;
+                else if (value >= 0)
+                    color = (cl.frame.number / CL_FRAMEDIV) & 1;
+                else
+                    continue;
+                if (cl.frame.ps.stats[STAT_FLASHES] & 4)
+                    R_DrawPic(x, y, scr.field_pic);
+                HUD_DrawNumber(x, y, color, width, value);
+            }
+            continue;
+        }
 
-            if (cl.frame.ps.stats[STAT_FLASHES] & 4)
+        if (!strcmp(token, "rnum")) {
+            int     color;
+            int     armor = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? 4 : STAT_ARMOR;
+
+            width = 3;
+            value = cl.frame.ps.stats[armor];
+            if (value < 1)
+                continue;
+
+            color = 0;
+            if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN &&
+                (cl.frame.ps.stats[STAT_FLASHES] & 2))
                 R_DrawPic(x, y, scr.field_pic);
 
             HUD_DrawNumber(x, y, color, width, value);
             continue;
         }
 
-        if (!strcmp(token, "rnum")) {
-            // armor number
-            int     color;
-
-            width = 3;
-            value = cl.frame.ps.stats[STAT_ARMOR];
-            if (value < 1)
+        if (!strcmp(token, "wanum")) {
+            // weapon clip. -1 means the weapon has no clip.
+            value = cl.frame.ps.stats[18];
+            if (value < 0)
                 continue;
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                HUD_DrawNumber(scr.hud_width - 40, scr.hud_height - 50, 0, 3, value);
+            else
+                HUD_DrawNumber(x, y, 0, 3, value);
+            continue;
+        }
 
-            color = 0;  // green
+        if (!strcmp(token, "cnum")) {
+            value = cl.frame.ps.stats[16];
+            if (value < 0)
+                continue;
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 78, 1, 3, value);
+            else
+                HUD_DrawNumber(x, y, 1, 3, value);
+            continue;
+        }
 
-            if (cl.frame.ps.stats[STAT_FLASHES] & 2)
-                R_DrawPic(x, y, scr.field_pic);
+        if (!strcmp(token, "frags")) {
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+                HUD_DrawString(scr.hud_width - 85, 20, "Frags");
+                HUD_DrawNumber(scr.hud_width - 53, 5, 0, 3, cl.frame.ps.stats[STAT_FRAGS]);
+            } else {
+                HUD_DrawNumber(x, y, 0, 3, cl.frame.ps.stats[STAT_FRAGS]);
+            }
+            continue;
+        }
 
-            HUD_DrawNumber(x, y, color, width, value);
+        if (!strcmp(token, "picnote")) {
+            COM_Parse(&s);
+            continue;
+        }
+
+        if (!strcmp(token, "talk") || !strcmp(token, "hire") ||
+            !strcmp(token, "bagcash"))
+            continue;
+
+        if (!strcmp(token, "teams")) {
+            COM_Parse(&s);
+            COM_Parse(&s);
             continue;
         }
 
@@ -2016,9 +2207,21 @@ static void SCR_ExecuteLayoutString(const char *s)
                 Com_Error(ERR_DROP, "%s: invalid string index", __func__);
             }
             token = cl.configstrings[index];
-            if (!strcmp(cmd, "string"))
-                HUD_DrawString(x, y, token);
-            else if (!strcmp(cmd, "string2"))
+            if (!strcmp(cmd, "string")) {
+                const char *p = s;
+                int icon = -1;
+
+                while (*p == ' ')
+                    p++;
+                if (*p >= '0' && *p <= '9')
+                    icon = Q_atoi(COM_Parse(&s));
+                if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && icon >= 0) {
+                    HUD_DrawCenterString(scr.hud_width / 2, scr.hud_height - 68, token);
+                    HUD_DrawKingpinIcon(icon, scr.hud_width / 2 - 16, scr.hud_height - 56);
+                } else {
+                    HUD_DrawString(x, y, token);
+                }
+            } else if (!strcmp(cmd, "string2"))
                 HUD_DrawAltString(x, y, token);
             else if (!strcmp(cmd, "cstring"))
                 HUD_DrawCenterString(x + 320 / 2, y, token);
@@ -2220,7 +2423,9 @@ static void SCR_DrawStats(void)
     if (cl.frame.ps.stats[STAT_LAYOUTS] & LAYOUTS_HIDE_HUD)
         return;
 
-    SCR_ExecuteLayoutString(cl.configstrings[CS_STATUSBAR]);
+    int bar = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? CS_STATUSBAR_KP : CS_STATUSBAR;
+
+    SCR_ExecuteLayoutString(cl.configstrings[bar]);
 }
 
 static void SCR_DrawLayout(void)

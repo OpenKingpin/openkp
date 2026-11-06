@@ -4,6 +4,7 @@ x11_deps = [
   dependency('xi', required: get_option('x11')),
   dependency('gl', required: get_option('x11'))
 ]
+xrandr_dep = dependency('xrandr', required: false)
 
 foreach dep: x11_deps
   if not dep.found()
@@ -16,6 +17,10 @@ if x11_use
   client_src += files('x11.c', 'keytables/evdev.c', 'keytables/at.c')
   client_deps += x11_deps
   config.set10('USE_X11', true)
+  if xrandr_dep.found()
+    client_deps += xrandr_dep
+    config.set10('USE_XRANDR', true)
+  endif
 endif
 
 wayland_opt = get_option('wayland')

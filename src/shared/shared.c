@@ -1003,13 +1003,13 @@ key and returns the associated value, or an empty string.
 */
 char *Info_ValueForKey(const char *s, const char *key)
 {
-    // use 4 buffers so compares work without stomping on each other
-    static char value[4][MAX_INFO_STRING];
+    // use 8 buffers so compares work without stomping on each other
+    static char value[8][MAX_INFO_STRING];
     static int  valueindex;
     char        pkey[MAX_INFO_STRING];
     char        *o;
 
-    valueindex = (valueindex + 1) & 3;
+    valueindex = (valueindex + 1) & 7;
     if (*s == '\\')
         s++;
     while (1) {
@@ -1342,6 +1342,29 @@ const cs_remap_t cs_remap_old = {
     .general     = CS_GENERAL_OLD,
 
     .end         = MAX_CONFIGSTRINGS_OLD
+};
+
+const cs_remap_t cs_remap_kingpin = {
+    .extended    = false,
+
+    .max_edicts  = MAX_EDICTS_KP,
+    .max_models  = MAX_MODELS_KP,
+    .max_sounds  = MAX_SOUNDS_KP,
+    .max_images  = MAX_IMAGES_KP,
+
+    .airaccel    = CS_SERVER_VERSION_KP,
+    .maxclients  = CS_MAXCLIENTS_KP,
+    .mapchecksum = CS_MAPCHECKSUM_KP,
+
+    .models      = CS_MODELS_KP,
+    .sounds      = CS_SOUNDS_KP,
+    .images      = CS_IMAGES_KP,
+    .lights      = CS_LIGHTS_KP,
+    .items       = CS_ITEMS_KP,
+    .playerskins = CS_PLAYERSKINS_KP,
+    .general     = CS_GENERAL_KP,
+
+    .end         = MAX_CONFIGSTRINGS_KP
 };
 
 const cs_remap_t cs_remap_new = {

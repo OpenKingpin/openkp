@@ -27,6 +27,16 @@ LIST_DECL(ui_menus);
 cvar_t    *ui_debug;
 static cvar_t    *ui_open;
 static cvar_t    *ui_scale;
+static cvar_t    *ui_font;
+
+static void ui_font_changed(cvar_t *self)
+{
+    qhandle_t h = R_RegisterFont(self->string);
+    if (!h)
+        h = R_RegisterFont("conchars");
+    if (h)
+        uis.fontHandle = h;
+}
 
 // ===========================================================================
 
@@ -218,10 +228,7 @@ void UI_OpenMenu(uiMenu_t type)
         menu = UI_FindMenu("main");
         break;
     case UIMENU_GAME:
-        menu = UI_FindMenu("game");
-        if (!menu) {
-            menu = UI_FindMenu("main");
-        }
+        menu = UI_FindMenu("main");
         break;
     case UIMENU_NONE:
         break;
@@ -574,10 +581,51 @@ static void UI_PopMenu_f(void)
 }
 
 
+static void UI_MenuSavegame_f(void)
+{
+    menuFrameWork_t *menu = UI_FindMenu("savegame");
+    if (menu) {
+        UI_PushMenu(menu);
+    }
+}
+
+static void UI_MenuLoadgame_f(void)
+{
+    menuFrameWork_t *menu = UI_FindMenu("loadgame");
+    if (menu) {
+        UI_PushMenu(menu);
+    }
+}
+
+static void UI_MenuKeys_f(void)
+{
+    menuFrameWork_t *menu = UI_FindMenu("keys");
+    if (menu) {
+        UI_PushMenu(menu);
+    }
+}
+
+static void UI_MenuQuit_f(void)
+{
+    menuFrameWork_t *menu = UI_FindMenu("kpquit");
+    if (!menu) {
+        menu = UI_FindMenu("quit");
+    }
+    if (menu) {
+        UI_PushMenu(menu);
+    } else {
+        Cbuf_AddText(&cmd_buffer, "quit\n");
+    }
+}
+
 static const cmdreg_t c_ui[] = {
     { "forcemenuoff", UI_ForceMenuOff },
     { "pushmenu", UI_PushMenu_f, UI_PushMenu_c },
     { "popmenu", UI_PopMenu_f },
+    { "menu_savegame", UI_MenuSavegame_f },
+    { "menu_loadgame", UI_MenuLoadgame_f },
+    { "menu_keys", UI_MenuKeys_f },
+    { "menu_quit", UI_MenuQuit_f },
 
     { NULL, NULL }
 };
@@ -617,16 +665,20 @@ void UI_Init(void)
     Cmd_Register(c_ui);
 
     ui_debug = Cvar_Get("ui_debug", "0", 0);
-    ui_open = Cvar_Get("ui_open", "0", 0);
+    ui_open = Cvar_Get("ui_open", "1", 0);
+    ui_font = Cvar_Get("ui_font", "conchars_high_11x11", CVAR_ARCHIVE);
+    ui_font->changed = ui_font_changed;
 
     UI_ModeChanged();
 
-    uis.fontHandle = R_RegisterFont("conchars");
+    uis.fontHandle = R_RegisterFont(ui_font->string);
+    if (!uis.fontHandle)
+        uis.fontHandle = R_RegisterFont("conchars");
     uis.cursorHandle = R_RegisterPic("ch1");
     R_GetPicSize(&uis.cursorWidth, &uis.cursorHeight, uis.cursorHandle);
 
     for (int i = 0; i < NUM_CURSOR_FRAMES; i++) {
-        uis.bitmapCursors[i] = R_RegisterPic(va("m_cursor%d", i));
+        uis.bitmapCursors[i] = R_RegisterImage(va("m_cursor%d", i), IT_PIC, IF_PERMANENT | IF_OPTIONAL);
     }
 
     uis.color.background.u32    = MakeColor(0,   0,   0, 255);
@@ -644,6 +696,7 @@ void UI_Init(void)
     M_Menu_PlayerConfig();
     M_Menu_Servers();
     M_Menu_Demos();
+    M_Menu_Kingpin();
 
     Com_DPrintf("Registered %d menus.\n", List_Count(&ui_menus));
 
@@ -663,6 +716,8 @@ void UI_Shutdown(void)
     UI_ForceMenuOff();
 
     ui_scale->changed = NULL;
+    if (ui_font)
+        ui_font->changed = NULL;
 
     PlayerModel_Free();
 

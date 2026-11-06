@@ -17,8 +17,13 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 */
 
 #include "ui.h"
+#include "common/async.h"
 #include "common/files.h"
+#include "common/msg.h"
+#include "common/zone.h"
 #include "common/net/net.h"
+#include "common/net/chan.h"
+#include "client/client.h"
 #include "client/video.h"
 #include "system/system.h"
 
@@ -45,15 +50,19 @@ SERVERS MENU
 // how many times to (re)ping
 #define PING_STAGES     3
 
+typedef enum {
+    SLOT_IDLE,
+    SLOT_PENDING,
+    SLOT_ERROR,
+    SLOT_VALID
+} slotStatus_t;
+
 typedef struct {
-    enum {
-        SLOT_IDLE,
-        SLOT_PENDING,
-        SLOT_ERROR,
-        SLOT_VALID
-    } status;
+    slotStatus_t status;
     netadr_t    address;
     char        *hostname; // original domain name, only used for favorites
+    char        *mod;      // mod directory, e.g. "ctf", "crash", or "" for main
+    bool        isFavorite;
     int         numRules;
     char        *rules[MAX_STATUS_RULES];
     int         numPlayers;
@@ -64,11 +73,21 @@ typedef struct {
 } serverslot_t;
 
 typedef struct {
+    netadr_t        address;
+    char            *hostname;
+    bool            isFavorite;
+    slotStatus_t    status;
+    unsigned        timestamp;
+} queryserver_t;
+
+typedef struct {
     menuFrameWork_t menu;
     menuList_t      list;
     menuList_t      info;
     menuList_t      players;
     void            *names[MAX_STATUS_SERVERS];
+    queryserver_t   query[MAX_STATUS_SERVERS];
+    int             num_query;
     char            *args;
     unsigned        timestamp;
     int             pingstage;
@@ -81,6 +100,28 @@ typedef struct {
 
 static m_servers_t  m_servers;
 
+typedef struct {
+    const char  *name;
+    netadr_t    adr;
+    unsigned    time;
+    int         tries;
+    bool        resolved;
+    bool        done;
+} kp_master_t;
+
+static const char *const kp_master_hosts[] = {
+    "master.kingpin.info",
+    "master0.kingpin.info",
+    "master1.kingpin.info",
+    "master2.kingpin.info",
+    "master3.kingpin.info",
+    "master4.kingpin.info",
+    "master2.shavargo.com",
+};
+
+static kp_master_t  kp_masters[q_countof(kp_master_hosts)];
+static bool         masters_open;
+
 static cvar_t   *ui_sortservers;
 static cvar_t   *ui_colorservers;
 static cvar_t   *ui_pingrate;
@@ -90,7 +131,7 @@ static void UpdateSelection(void)
     serverslot_t *s = NULL;
 
     if (m_servers.list.numItems) {
-        if (m_servers.list.curvalue >= 0) {
+        if (m_servers.list.curvalue >= 0 && m_servers.list.curvalue < m_servers.list.numItems) {
             s = m_servers.list.items[m_servers.list.curvalue];
             if (s->status == SLOT_VALID) {
                 m_servers.status_c = "Press Enter to connect; Space to refresh";
@@ -102,11 +143,13 @@ static void UpdateSelection(void)
         } else {
             m_servers.status_c = "Select a server; Press Alt+Space to refresh";
         }
+    } else if (m_servers.pingstage) {
+        m_servers.status_c = "Pinging servers; Press Backspace to abort";
     } else {
-        m_servers.status_c = "No servers found; Press Space to refresh";
+        m_servers.status_c = "No online servers found; Press Space to refresh";
     }
 
-    if (s && s->status == SLOT_VALID && s->numRules && uis.width >= 640) {
+    if (s && s->status == SLOT_VALID && s->numRules && uis.width >= 500) {
         m_servers.info.generic.flags &= ~QMF_HIDDEN;
         if (m_servers.info.items != (void **)s->rules || m_servers.info.numItems != s->numRules) {
             m_servers.info.items = (void **)s->rules;
@@ -120,7 +163,7 @@ static void UpdateSelection(void)
         m_servers.info.numItems = 0;
     }
 
-    if (s && s->status == SLOT_VALID && s->numPlayers) {
+    if (s && s->status == SLOT_VALID) {
         m_servers.players.generic.flags &= ~QMF_HIDDEN;
         if (m_servers.players.items != (void **)s->players || m_servers.players.numItems != s->numPlayers) {
             m_servers.players.items = (void **)s->players;
@@ -163,7 +206,22 @@ static void FreeSlot(serverslot_t *slot)
         Z_Free(slot->rules[i]);
     for (i = 0; i < slot->numPlayers; i++)
         Z_Free(slot->players[i]);
+    Z_Free(slot->mod);
     Z_Free(slot);
+}
+
+static queryserver_t *FindQuery(const netadr_t *search)
+{
+    int i;
+    for (i = 0; i < m_servers.num_query; i++) {
+        queryserver_t *q = &m_servers.query[i];
+        if (!NET_IsEqualBaseAdr(search, &q->address))
+            continue;
+        if (search->port && search->port != q->address.port)
+            continue;
+        return q;
+    }
+    return NULL;
 }
 
 static serverslot_t *FindSlot(const netadr_t *search, int *index_p)
@@ -214,7 +272,13 @@ void UI_StatusEvent(const serverStatus_t *status)
 {
     serverslot_t *slot;
     char *hostname;
-    const char *host, *mod, *map, *maxclients;
+    char host[MAX_INFO_STRING];
+    char map[MAX_INFO_STRING];
+    char maxclients[MAX_INFO_STRING];
+    char mod_dir[MAX_INFO_STRING];
+    char gamename[MAX_INFO_STRING];
+    char cashlimit[MAX_INFO_STRING];
+    const char *mod_display = "DM";
     unsigned timestamp, ping;
     const char *info = status->infostring;
     char key[MAX_INFO_STRING];
@@ -226,41 +290,112 @@ void UI_StatusEvent(const serverStatus_t *status)
         return;
     }
 
-    // see if already added
+    // Filter non-Kingpin servers: Kingpin is strictly protocol 32.
+    // Master servers that index multiple games (e.g. GameSpy v0) may return
+    // servers for other games (like Quake 2 protocol 34). Reject them.
+    const char *proto = Info_ValueForKey(info, "protocol");
+    if (!proto || Q_atoi(proto) != PROTOCOL_VERSION_KINGPIN) {
+        queryserver_t *q = FindQuery(&net_from);
+        if (q)
+            q->status = SLOT_ERROR;
+        slot = FindSlot(&net_from, &i);
+        if (slot) {
+            Z_Free(slot->hostname);
+            FreeSlot(slot);
+            m_servers.list.numItems--;
+            for (; i < m_servers.list.numItems; i++)
+                m_servers.list.items[i] = m_servers.list.items[i + 1];
+            m_servers.list.items[m_servers.list.numItems] = NULL;
+            UpdateSelection();
+        }
+        return;
+    }
+
+    queryserver_t *q = FindQuery(&net_from);
+    bool isFavorite = false;
+    if (q) {
+        q->status = SLOT_VALID;
+        hostname = q->hostname;
+        timestamp = q->timestamp;
+        isFavorite = q->isFavorite;
+    } else {
+        hostname = (char *)NET_AdrToString(&net_from);
+        timestamp = m_servers.timestamp;
+    }
+
+    // see if already added in visible online list
     slot = FindSlot(&net_from, &i);
     if (!slot) {
-        // reply to broadcast, create new slot
         if (m_servers.list.numItems >= MAX_STATUS_SERVERS) {
             return;
         }
-        m_servers.list.numItems++;
-        hostname = UI_CopyString(NET_AdrToString(&net_from));
-        timestamp = m_servers.timestamp;
+        i = m_servers.list.numItems++;
+        hostname = UI_CopyString(hostname);
     } else {
-        // free previous data
         hostname = slot->hostname;
         timestamp = slot->timestamp;
+        isFavorite = slot->isFavorite;
         FreeSlot(slot);
     }
 
-    host = Info_ValueForKey(info, "hostname");
+    Q_strlcpy(host, Info_ValueForKey(info, "hostname"), sizeof(host));
     if (COM_IsWhite(host)) {
-        host = hostname;
+        Q_strlcpy(host, hostname, sizeof(host));
     }
 
-    mod = Info_ValueForKey(info, "game");
-    if (COM_IsWhite(mod)) {
-        mod = "baseq2";
+    Q_strlcpy(mod_dir, Info_ValueForKey(info, "game"), sizeof(mod_dir));
+    Q_strlcpy(gamename, Info_ValueForKey(info, "gamename"), sizeof(gamename));
+    Q_strlcpy(cashlimit, Info_ValueForKey(info, "cashlimit"), sizeof(cashlimit));
+
+    if (!COM_IsWhite(mod_dir) && Q_stricmp(mod_dir, "main") != 0 && COM_IsPath(mod_dir)) {
+        if (!Q_stricmp(mod_dir, "ctf"))
+            mod_display = "CTF";
+        else if (!Q_stricmp(mod_dir, "crash"))
+            mod_display = "Crash";
+        else if (!Q_stricmp(mod_dir, "gunrace"))
+            mod_display = "GunRace";
+        else if (!Q_stricmp(mod_dir, "riotz"))
+            mod_display = "Riotz";
+        else if (!Q_stricmp(mod_dir, "speedway"))
+            mod_display = "Speedway";
+        else if (!Q_stricmp(mod_dir, "kitmod"))
+            mod_display = "KitMod";
+        else if (!Q_stricmp(mod_dir, "coop"))
+            mod_display = "Coop";
+        else if (!Q_stricmp(mod_dir, "botmatch") || !Q_stricmp(mod_dir, "compbots"))
+            mod_display = "Botmatch";
+        else if (!Q_stricmp(mod_dir, "ctc"))
+            mod_display = "CTC";
+        else if (!Q_stricmp(mod_dir, "killconfirmed"))
+            mod_display = "KillConf";
+        else if (!Q_stricmp(mod_dir, "killapin"))
+            mod_display = "Killapin";
+        else if (!Q_stricmp(mod_dir, "kpz"))
+            mod_display = "KPZ";
+        else
+            mod_display = mod_dir;
+    } else {
+        mod_dir[0] = 0;
+        if (cashlimit[0] && Q_atoi(cashlimit) > 0)
+            mod_display = "Bagman";
+        else if (Q_stristr(gamename, "Bagman") || Q_stristr(gamename, "BM"))
+            mod_display = "Bagman";
+        else if (Q_stristr(gamename, "coop"))
+            mod_display = "Coop";
+        else if (Q_stristr(gamename, "botmatch"))
+            mod_display = "DM+Bots";
+        else
+            mod_display = "DM";
     }
 
-    map = Info_ValueForKey(info, "mapname");
+    Q_strlcpy(map, Info_ValueForKey(info, "mapname"), sizeof(map));
     if (COM_IsWhite(map)) {
-        map = "???";
+        strcpy(map, "???");
     }
 
-    maxclients = Info_ValueForKey(info, "maxclients");
+    Q_strlcpy(maxclients, Info_ValueForKey(info, "maxclients"), sizeof(maxclients));
     if (!COM_IsUint(maxclients)) {
-        maxclients = "?";
+        strcpy(maxclients, "?");
     }
 
     if (timestamp > com_eventTime)
@@ -270,13 +405,15 @@ void UI_StatusEvent(const serverStatus_t *status)
     if (ping > 999)
         ping = 999;
 
-    slot = UI_FormatColumns(SLOT_EXTRASIZE, host, mod, map,
+    slot = UI_FormatColumns(SLOT_EXTRASIZE, host, mod_display, map,
                             va("%d/%s", status->numPlayers, maxclients),
                             va("%u", ping),
                             NULL);
     slot->status = SLOT_VALID;
     slot->address = net_from;
     slot->hostname = hostname;
+    slot->mod = UI_CopyString(mod_dir);
+    slot->isFavorite = isFavorite;
     slot->color = ColorForStatus(status, ping);
 
     m_servers.list.items[i] = slot;
@@ -309,8 +446,10 @@ void UI_StatusEvent(const serverStatus_t *status)
 
     slot->timestamp = timestamp;
 
-    // don't sort when manually refreshing
-    if (m_servers.pingstage)
+    if (m_servers.list.curvalue < 0 && m_servers.list.numItems > 0)
+        m_servers.list.curvalue = 0;
+
+    if (m_servers.list.sortcol >= 0)
         m_servers.list.sort(&m_servers.list);
 
     UpdateStatus();
@@ -327,46 +466,32 @@ An ICMP destination-unreachable error has been received.
 void UI_ErrorEvent(const netadr_t *from)
 {
     serverslot_t *slot;
-    netadr_t address;
-    char *hostname;
-    unsigned timestamp, ping;
     int i;
 
     // ignore unless menu is up
     if (!m_servers.args)
         return;
 
+    queryserver_t *q = FindQuery(from);
+    if (q)
+        q->status = SLOT_ERROR;
+
     slot = FindSlot(from, &i);
     if (!slot)
         return;
 
-    // only mark unreplied slots as invalid
-    if (slot->status != SLOT_PENDING)
-        return;
-
-    address = slot->address;
-    hostname = slot->hostname;
-    timestamp = slot->timestamp;
+    Z_Free(slot->hostname);
     FreeSlot(slot);
+    m_servers.list.numItems--;
+    for (; i < m_servers.list.numItems; i++)
+        m_servers.list.items[i] = m_servers.list.items[i + 1];
+    m_servers.list.items[m_servers.list.numItems] = NULL;
 
-    if (timestamp > com_eventTime)
-        timestamp = com_eventTime;
+    if (m_servers.list.curvalue >= m_servers.list.numItems)
+        m_servers.list.curvalue = m_servers.list.numItems - 1;
 
-    ping = com_eventTime - timestamp;
-    if (ping > 999)
-        ping = 999;
-
-    slot = UI_FormatColumns(SLOT_EXTRASIZE, hostname,
-                            "???", "???", "down", va("%u", ping), NULL);
-    slot->status = SLOT_ERROR;
-    slot->address = address;
-    slot->hostname = hostname;
-    slot->color = U32_WHITE;
-    slot->numRules = 0;
-    slot->numPlayers = 0;
-    slot->timestamp = timestamp;
-
-    m_servers.list.items[i] = slot;
+    UpdateStatus();
+    UpdateSelection();
 }
 
 static menuSound_t SetRconAddress(void)
@@ -405,8 +530,6 @@ static menuSound_t CopyAddress(void)
 static menuSound_t PingSelected(void)
 {
     serverslot_t *slot;
-    netadr_t address;
-    char *hostname;
 
     if (!m_servers.list.numItems)
         return QMS_BEEP;
@@ -414,35 +537,24 @@ static menuSound_t PingSelected(void)
         return QMS_BEEP;
 
     slot = m_servers.list.items[m_servers.list.curvalue];
-    address = slot->address;
-    hostname = slot->hostname;
-    FreeSlot(slot);
-
-    slot = UI_FormatColumns(SLOT_EXTRASIZE, hostname,
-                            "???", "???", "?/?", "???", NULL);
-    slot->status = SLOT_PENDING;
-    slot->address = address;
-    slot->hostname = hostname;
-    slot->color = U32_WHITE;
-    slot->numRules = 0;
-    slot->numPlayers = 0;
     slot->timestamp = com_eventTime;
 
-    m_servers.list.items[m_servers.list.curvalue] = slot;
-
-    UpdateStatus();
-    UpdateSelection();
+    queryserver_t *q = FindQuery(&slot->address);
+    if (q) {
+        q->status = SLOT_PENDING;
+        q->timestamp = com_eventTime;
+    }
 
     CL_SendStatusRequest(&slot->address);
     return QMS_SILENT;
 }
 
-static void AddServer(const netadr_t *address, const char *hostname)
+static void AddServer(const netadr_t *address, const char *hostname, bool isFavorite)
 {
     netadr_t tmp;
-    serverslot_t *slot;
+    queryserver_t *q;
 
-    if (m_servers.list.numItems >= MAX_STATUS_SERVERS)
+    if (m_servers.num_query >= MAX_STATUS_SERVERS)
         return;
 
     if (!address) {
@@ -458,8 +570,8 @@ static void AddServer(const netadr_t *address, const char *hostname)
         address = &tmp;
     }
 
-    // ignore if already listed
-    if (FindSlot(address, NULL))
+    // ignore if already queued
+    if (FindQuery(address))
         return;
 
     if (!hostname)
@@ -471,17 +583,12 @@ static void AddServer(const netadr_t *address, const char *hostname)
         return;
     }
 
-    slot = UI_FormatColumns(SLOT_EXTRASIZE, hostname,
-                            "???", "???", "?/?", "???", NULL);
-    slot->status = SLOT_IDLE;
-    slot->address = *address;
-    slot->hostname = UI_CopyString(hostname);
-    slot->color = U32_WHITE;
-    slot->numRules = 0;
-    slot->numPlayers = 0;
-    slot->timestamp = com_eventTime;
-
-    m_servers.list.items[m_servers.list.numItems++] = slot;
+    q = &m_servers.query[m_servers.num_query++];
+    q->address = *address;
+    q->hostname = UI_CopyString(hostname);
+    q->isFavorite = isFavorite;
+    q->status = SLOT_IDLE;
+    q->timestamp = com_eventTime;
 }
 
 static void ParsePlain(void *data, size_t len, size_t chunk)
@@ -500,8 +607,11 @@ static void ParsePlain(void *data, size_t len, size_t chunk)
             *p = 0;
         }
 
-        if (*list)
-            AddServer(NULL, list);
+        while (*list == ' ' || *list == '\t')
+            list++;
+
+        if (*list && *list != '#' && *list != '/')
+            AddServer(NULL, list, false);
 
         if (!p)
             break;
@@ -527,7 +637,7 @@ static void ParseBinary(void *data, size_t len, size_t chunk)
         ptr += chunk;
         len -= chunk;
 
-        AddServer(&address, NULL);
+        AddServer(&address, NULL, false);
     }
 }
 
@@ -542,8 +652,115 @@ static void ParseAddressBook(void)
             break;
 
         if (var->string[0])
-            AddServer(NULL, var->string);
+            AddServer(NULL, var->string, true);
     }
+}
+
+static bool MasterWaiting(void)
+{
+    int i;
+
+    for (i = 0; i < q_countof(kp_masters); i++) {
+        if (kp_masters[i].resolved && !kp_masters[i].done)
+            return true;
+    }
+    return false;
+}
+
+static void ParseCachedServers(void)
+{
+    void *data = NULL;
+    int len = FS_LoadFile("servers_cache.txt", &data);
+    if (len > 0) {
+        ParsePlain(data, len, 0);
+        FS_FreeFile(data);
+    }
+}
+
+#define BACKUP_SERVERS_URL "https://raw.githubusercontent.com/shavargo/kingpin-servers-mirror/refs/heads/main/servers.txt"
+
+#if USE_CURL
+typedef struct {
+    asyncwork_t work;
+    void *data;
+    int len;
+} mirror_sync_t;
+
+static void MirrorSync_Work(void *arg)
+{
+    mirror_sync_t *sync = (mirror_sync_t *)arg;
+    sync->len = HTTP_FetchFile(BACKUP_SERVERS_URL, &sync->data);
+}
+
+static void MirrorSync_Done(void *arg)
+{
+    mirror_sync_t *sync = (mirror_sync_t *)arg;
+    if (sync->len > 0 && sync->data) {
+        void *local_data = NULL;
+        int local_len = FS_LoadFile("servers_cache.txt", &local_data);
+        bool changed = (local_len != sync->len || !local_data || memcmp(local_data, sync->data, sync->len) != 0);
+        if (local_data)
+            FS_FreeFile(local_data);
+
+        if (changed) {
+            FS_WriteFile("servers_cache.txt", sync->data, sync->len);
+            Com_DPrintf("Updated servers_cache.txt from mirror (%d bytes)\n", sync->len);
+        }
+        HTTP_FreeFile(sync->data);
+    }
+    Z_Free(sync);
+}
+
+void UI_CheckServerMirrorCache(void)
+{
+    mirror_sync_t *sync = Z_Malloc(sizeof(mirror_sync_t));
+    sync->work.work_cb = MirrorSync_Work;
+    sync->work.done_cb = MirrorSync_Done;
+    sync->work.cb_arg = sync;
+    Com_QueueAsyncWork(&sync->work);
+}
+#else
+void UI_CheckServerMirrorCache(void) {}
+#endif
+
+static void QueryKingpinMaster(void)
+{
+    unsigned now;
+    int i, j;
+
+    NET_Config(NET_CLIENT);
+    memset(kp_masters, 0, sizeof(kp_masters));
+    now = Sys_Milliseconds();
+    masters_open = false;
+
+    for (i = 0; i < q_countof(kp_master_hosts); i++) {
+        kp_master_t *m = &kp_masters[i];
+        netadr_t adr;
+
+        m->name = kp_master_hosts[i];
+        memset(&adr, 0, sizeof(adr));
+        if (!NET_StringToAdr(m->name, &adr, PORT_MASTER)) {
+            Com_Printf("Couldn't resolve %s.\n", m->name);
+            continue;
+        }
+
+        for (j = 0; j < i; j++) {
+            if (kp_masters[j].resolved && NET_IsEqualAdr(&kp_masters[j].adr, &adr))
+                break;
+        }
+        if (j < i)
+            continue;
+
+        m->adr = adr;
+        m->resolved = true;
+        m->tries = 1;
+        m->time = now;
+        masters_open = true;
+        Netchan_OutOfBand(NS_CLIENT, &m->adr, "query");
+    }
+
+    if (masters_open)
+        m_servers.status_c = "Querying masters...";
 }
 
 static void ParseMasterArgs(netadr_t *broadcast)
@@ -559,10 +776,10 @@ static void ParseMasterArgs(netadr_t *broadcast)
 
     argc = Cmd_Argc();
     if (!argc) {
-        // default action to take when no URLs are given
+        // Favorites, cached mirror servers, and Kingpin UDP masters.
         ParseAddressBook();
-        broadcast->type = NA_BROADCAST;
-        broadcast->port = BigShort(PORT_SERVER);
+        ParseCachedServers();
+        QueryKingpinMaster();
         return;
     }
 
@@ -621,7 +838,7 @@ static void ParseMasterArgs(netadr_t *broadcast)
         }
 
         if (!strncmp(s, "quake2://", 9)) {
-            AddServer(NULL, s + 9);
+            AddServer(NULL, s + 9, false);
             continue;
         }
 
@@ -641,9 +858,16 @@ static void ClearServers(void)
         Z_Free(slot->hostname);
         FreeSlot(slot);
     }
-
     m_servers.list.numItems = 0;
     m_servers.list.curvalue = -1;
+
+    for (i = 0; i < m_servers.num_query; i++) {
+        Z_Free(m_servers.query[i].hostname);
+    }
+    m_servers.num_query = 0;
+
+    masters_open = false;
+    memset(kp_masters, 0, sizeof(kp_masters));
     m_servers.list.prestep = 0;
     m_servers.info.items = NULL;
     m_servers.info.numItems = 0;
@@ -654,14 +878,36 @@ static void ClearServers(void)
 
 static void FinishPingStage(void)
 {
+    int i = 0;
+
     m_servers.pingstage = 0;
     m_servers.pingindex = 0;
     m_servers.pingextra = 0;
 
-    // if the user didn't select anything yet, select the first item
-    if (m_servers.list.curvalue < 0)
+    // Prune any unreplied / dead slots that never answered with a valid status
+    while (i < m_servers.list.numItems) {
+        serverslot_t *s = m_servers.list.items[i];
+        if (s->status != SLOT_VALID) {
+            Z_Free(s->hostname);
+            FreeSlot(s);
+            m_servers.list.numItems--;
+            for (int j = i; j < m_servers.list.numItems; j++)
+                m_servers.list.items[j] = m_servers.list.items[j + 1];
+            m_servers.list.items[m_servers.list.numItems] = NULL;
+        } else {
+            i++;
+        }
+    }
+
+    if (m_servers.list.numItems > 0)
+        m_servers.list.sort(&m_servers.list);
+
+    if (m_servers.list.curvalue >= m_servers.list.numItems)
+        m_servers.list.curvalue = m_servers.list.numItems - 1;
+    if (m_servers.list.curvalue < 0 && m_servers.list.numItems > 0)
         m_servers.list.curvalue = 0;
 
+    UpdateStatus();
     UpdateSelection();
 }
 
@@ -680,6 +926,8 @@ static void CalcPingRate(void)
     m_servers.pingtime = (1000 * PING_STAGES) / (rate * m_servers.pingstage);
 }
 
+static void BeginPing(void);
+
 /*
 =================
 UI_Frame
@@ -688,7 +936,34 @@ UI_Frame
 */
 void UI_Frame(int msec)
 {
-    serverslot_t *slot;
+    if (masters_open) {
+        unsigned now = Sys_Milliseconds();
+        int i;
+
+        for (i = 0; i < q_countof(kp_masters); i++) {
+            kp_master_t *m = &kp_masters[i];
+
+            if (!m->resolved || m->done)
+                continue;
+            if (now - m->time <= 1500)
+                continue;
+            if (m->tries < 3) {
+                m->tries++;
+                m->time = now;
+                Netchan_OutOfBand(NS_CLIENT, &m->adr, "query");
+            } else {
+                m->done = true;
+                Com_DPrintf("%s did not answer.\n", m->name);
+            }
+        }
+        if (!MasterWaiting()) {
+            masters_open = false;
+            if (!m_servers.num_query)
+                ParseCachedServers();
+            if (!m_servers.pingstage)
+                BeginPing();
+        }
+    }
 
     if (!m_servers.pingstage)
         return;
@@ -700,23 +975,70 @@ void UI_Frame(int msec)
     m_servers.pingextra -= m_servers.pingtime;
 
     // send out next status packet
-    while (m_servers.pingindex < m_servers.list.numItems) {
-        slot = m_servers.list.items[m_servers.pingindex++];
-        if (slot->status > SLOT_PENDING)
+    while (m_servers.pingindex < m_servers.num_query) {
+        queryserver_t *q = &m_servers.query[m_servers.pingindex++];
+        if (q->status > SLOT_PENDING)
             continue;
-        slot->status = SLOT_PENDING;
-        slot->timestamp = com_eventTime;
-        CL_SendStatusRequest(&slot->address);
+        q->status = SLOT_PENDING;
+        q->timestamp = com_eventTime;
+        CL_SendStatusRequest(&q->address);
         break;
     }
 
-    if (m_servers.pingindex == m_servers.list.numItems) {
+    if (m_servers.pingindex >= m_servers.num_query) {
         m_servers.pingindex = 0;
         if (--m_servers.pingstage == 0)
             FinishPingStage();
         else
             CalcPingRate();
     }
+}
+
+static void BeginPing(void)
+{
+    if (!m_servers.num_query) {
+        FinishPingStage();
+        return;
+    }
+
+    m_servers.pingstage = PING_STAGES;
+    m_servers.pingindex = 0;
+    m_servers.pingextra = 0;
+    CalcPingRate();
+}
+
+void UI_AddMasterServers(void)
+{
+    kp_master_t *m;
+    int before, i;
+    size_t len;
+
+    if (!m_servers.args)
+        return;
+
+    m = NULL;
+    for (i = 0; i < q_countof(kp_masters); i++) {
+        if (!kp_masters[i].resolved || kp_masters[i].done)
+            continue;
+        if (NET_IsEqualAdr(&net_from, &kp_masters[i].adr)) {
+            m = &kp_masters[i];
+            break;
+        }
+    }
+    if (!m)
+        return;
+
+    before = m_servers.num_query;
+    len = msg_read.cursize - msg_read.readcount;
+    ParseBinary(msg_read.data + msg_read.readcount, len, 6);
+    m->done = true;
+    Com_Printf("%s: %d new, %d total\n", m->name,
+               m_servers.num_query - before, m_servers.num_query);
+
+    if (!MasterWaiting())
+        masters_open = false;
+    if (!m_servers.pingstage)
+        BeginPing();
 }
 
 static void PingServers(void)
@@ -743,16 +1065,11 @@ static void PingServers(void)
     if (broadcast.type)
         CL_SendStatusRequest(&broadcast);
 
-    if (!m_servers.list.numItems) {
-        FinishPingStage();
+    // Master replies arrive later. Favorites can ping in the meantime.
+    if (MasterWaiting() && !m_servers.num_query)
         return;
-    }
 
-    // begin pinging servers
-    m_servers.pingstage = PING_STAGES;
-    m_servers.pingindex = 0;
-    m_servers.pingextra = 0;
-    CalcPingRate();
+    BeginPing();
 }
 
 static int statuscmp(serverslot_t *s1, serverslot_t *s2)
@@ -881,7 +1198,12 @@ static menuSound_t Connect(menuCommon_t *self)
     if (slot->status == SLOT_ERROR)
         return QMS_BEEP;
 
-    Cbuf_AddText(&cmd_buffer, va("connect %s\n", slot->hostname));
+    const char *target = (slot->mod && slot->mod[0]) ? slot->mod : "";
+    if (Q_stricmp(fs_game->string, target) != 0) {
+        Cbuf_AddText(&cmd_buffer, va("game \"%s\"\nconnect %s\n", target, slot->hostname));
+    } else {
+        Cbuf_AddText(&cmd_buffer, va("connect %s\n", slot->hostname));
+    }
     return QMS_SILENT;
 }
 
@@ -893,79 +1215,127 @@ static menuSound_t Change(menuCommon_t *self)
 
 static void SizeCompact(void)
 {
-    int w = uis.width - MLIST_SCROLLBAR_WIDTH;
+    int margin_x = 4;
+    int header_y = 24;
+    int footer_h = 20;
+    int content_w = uis.width - margin_x * 2;
+    int content_h = uis.height - header_y - footer_h;
+    int half_h = (content_h - 8) / 2;
 
 //
 // server list
 //
-    m_servers.list.generic.x            = 0;
-    m_servers.list.generic.y            = CONCHAR_HEIGHT;
-    m_servers.list.generic.height       = uis.height / 2 - CONCHAR_HEIGHT;
+    m_servers.list.generic.x            = margin_x;
+    m_servers.list.generic.y            = header_y;
+    m_servers.list.generic.height       = half_h;
 
-    m_servers.list.columns[0].width     = w - 10 * CONCHAR_WIDTH - MLIST_PADDING * 2;
+    int col_ply = 7 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_rtt = 3 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_host = content_w - MLIST_SCROLLBAR_WIDTH - col_ply - col_rtt;
+    if (col_host < 50)
+        col_host = 50;
+
+    m_servers.list.columns[0].width     = col_host;
     m_servers.list.columns[1].width     = 0;
     m_servers.list.columns[2].width     = 0;
-    m_servers.list.columns[3].width     = 7 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.list.columns[4].width     = 3 * CONCHAR_WIDTH + MLIST_PADDING;
+    m_servers.list.columns[3].width     = col_ply;
+    m_servers.list.columns[4].width     = col_rtt;
 
 //
 // player list
 //
-    m_servers.players.generic.x         = 0;
-    m_servers.players.generic.y         = uis.height / 2 + 1;
-    m_servers.players.generic.height    = (uis.height + 1) / 2 - CONCHAR_HEIGHT - 2;
+    m_servers.players.generic.x         = margin_x;
+    m_servers.players.generic.y         = header_y + half_h + 8;
+    m_servers.players.generic.height    = content_h - half_h - 8;
 
-    m_servers.players.columns[0].width  = 3 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.players.columns[1].width  = 3 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.players.columns[2].width  = w - 6 * CONCHAR_WIDTH - MLIST_PADDING * 2;
+    int pcol_frg = 3 * CONCHAR_WIDTH + MLIST_PADDING;
+    int pcol_rtt = 3 * CONCHAR_WIDTH + MLIST_PADDING;
+    int pcol_name = content_w - MLIST_SCROLLBAR_WIDTH - (pcol_frg + pcol_rtt);
+    if (pcol_name < 50)
+        pcol_name = 50;
+
+    m_servers.players.columns[0].width  = pcol_frg;
+    m_servers.players.columns[1].width  = pcol_rtt;
+    m_servers.players.columns[2].width  = pcol_name;
 
     m_servers.players.mlFlags           |= MLF_SCROLLBAR;
 }
 
 static void SizeFull(void)
 {
-    int w = uis.width - MLIST_SCROLLBAR_WIDTH - 21 * CONCHAR_WIDTH - MLIST_PADDING * 3;
+    int margin_x = 8;
+    int header_y = 18;
+    int footer_h = 16;
+    int content_w = uis.width - margin_x * 2;
+    int content_h = uis.height - header_y - footer_h;
+
+    // Right pane width (player list): ~26 chars wide
+    int right_w = 26 * CONCHAR_WIDTH + MLIST_PADDING * 2 + MLIST_SCROLLBAR_WIDTH;
+    if (right_w > content_w * 35 / 100)
+        right_w = content_w * 35 / 100;
+    if (right_w < 180)
+        right_w = 180;
+
+    int left_w = content_w - right_w - 8;
+    int top_h = (content_h - 6) / 2;
+    int bottom_h = content_h - top_h - 6;
 
 //
 // server list
 //
-    m_servers.list.generic.x            = 0;
-    m_servers.list.generic.y            = CONCHAR_HEIGHT;
-    m_servers.list.generic.height       = uis.height / 2 - CONCHAR_HEIGHT;
+    m_servers.list.generic.x            = margin_x;
+    m_servers.list.generic.y            = header_y;
+    m_servers.list.generic.height       = top_h;
 
-    m_servers.list.columns[0].width     = w - 26 * CONCHAR_WIDTH - MLIST_PADDING * 4;
-    m_servers.list.columns[1].width     = 8 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.list.columns[2].width     = 8 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.list.columns[3].width     = 7 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.list.columns[4].width     = 3 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_rtt = 4 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_ply = 7 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_map = 16 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_mod = 9 * CONCHAR_WIDTH + MLIST_PADDING;
+    int col_fixed = col_mod + col_map + col_ply + col_rtt + MLIST_SCROLLBAR_WIDTH;
+    int col_host = left_w - col_fixed;
+    if (col_host < 80)
+        col_host = 80;
+
+    m_servers.list.columns[0].width     = col_host;
+    m_servers.list.columns[1].width     = col_mod;
+    m_servers.list.columns[2].width     = col_map;
+    m_servers.list.columns[3].width     = col_ply;
+    m_servers.list.columns[4].width     = col_rtt;
 
 //
 // server info
 //
-    m_servers.info.generic.x            = 0;
-    m_servers.info.generic.y            = uis.height / 2 + 1;
-    m_servers.info.generic.height       = (uis.height + 1) / 2 - CONCHAR_HEIGHT - 2;
+    m_servers.info.generic.x            = margin_x;
+    m_servers.info.generic.y            = header_y + top_h + 6;
+    m_servers.info.generic.height       = bottom_h;
 
-    m_servers.info.columns[0].width     = w / 3;
-    m_servers.info.columns[1].width     = w - w / 3;
+    int info_key_w = left_w * 35 / 100;
+    m_servers.info.columns[0].width     = info_key_w;
+    m_servers.info.columns[1].width     = left_w - info_key_w - MLIST_SCROLLBAR_WIDTH;
 
 //
 // player list
 //
-    m_servers.players.generic.x         = w + MLIST_SCROLLBAR_WIDTH;
-    m_servers.players.generic.y         = CONCHAR_HEIGHT;
-    m_servers.players.generic.height    = uis.height - CONCHAR_HEIGHT * 2 - 1;
+    m_servers.players.generic.x         = margin_x + left_w + 8;
+    m_servers.players.generic.y         = header_y;
+    m_servers.players.generic.height    = content_h;
 
-    m_servers.players.columns[0].width  = 3 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.players.columns[1].width  = 3 * CONCHAR_WIDTH + MLIST_PADDING;
-    m_servers.players.columns[2].width  = 15 * CONCHAR_WIDTH + MLIST_PADDING;
+    int pcol_frg = 4 * CONCHAR_WIDTH + MLIST_PADDING;
+    int pcol_rtt = 4 * CONCHAR_WIDTH + MLIST_PADDING;
+    int pcol_name = right_w - MLIST_SCROLLBAR_WIDTH - (pcol_frg + pcol_rtt);
+    if (pcol_name < 60)
+        pcol_name = 60;
 
-    m_servers.players.mlFlags           &= ~MLF_SCROLLBAR;
+    m_servers.players.columns[0].width  = pcol_frg;
+    m_servers.players.columns[1].width  = pcol_rtt;
+    m_servers.players.columns[2].width  = pcol_name;
+
+    m_servers.players.mlFlags           |= MLF_SCROLLBAR;
 }
 
 static void Size(menuFrameWork_t *self)
 {
-    if (uis.width >= 640)
+    if (uis.width >= 500)
         SizeFull();
     else
         SizeCompact();
@@ -1010,36 +1380,50 @@ static menuSound_t Keydown(menuFrameWork_t *self, int key)
 
 static void DrawStatus(void)
 {
-    int w;
+    int h = 14;
+    int y = uis.height - h;
 
-    if (m_servers.pingstage == PING_STAGES)
-        w = m_servers.pingindex * uis.width / m_servers.list.numItems;
-    else
-        w = uis.width;
+    // Dark bar with top amber border
+    R_DrawFill32(0, y, uis.width, h, MakeColor(14, 11, 9, 230));
+    R_DrawFill32(0, y, uis.width, 1, MakeColor(180, 140, 50, 160));
 
-    R_DrawFill8(0, uis.height - CONCHAR_HEIGHT, w, CONCHAR_HEIGHT, 4);
-    R_DrawFill8(w, uis.height - CONCHAR_HEIGHT, uis.width - w, CONCHAR_HEIGHT, 0);
+    // Progress indicator when pinging
+    if (m_servers.pingstage == PING_STAGES && m_servers.num_query > 0) {
+        int pw = m_servers.pingindex * uis.width / m_servers.num_query;
+        R_DrawFill32(0, y + 1, pw, 2, MakeColor(240, 190, 40, 230));
+    }
 
-    if (m_servers.status_c)
-        UI_DrawString(uis.width / 2, uis.height - CONCHAR_HEIGHT, UI_CENTER, m_servers.status_c);
-
-    if (uis.width < 800)
-        return;
-
-    if (m_servers.list.numItems)
-        UI_DrawString(uis.width, uis.height - CONCHAR_HEIGHT, UI_RIGHT, m_servers.status_r);
-
+    int text_y = y + 3;
     if (m_servers.list.numItems && m_servers.list.curvalue >= 0) {
         serverslot_t *slot = m_servers.list.items[m_servers.list.curvalue];
         if (slot->status > SLOT_PENDING) {
-            UI_DrawString(0, uis.height - CONCHAR_HEIGHT, UI_LEFT, slot->hostname);
+            UI_DrawString(8, text_y, UI_LEFT | UI_ALTCOLOR, slot->hostname);
         }
     }
+
+    if (m_servers.status_c)
+        UI_DrawString(uis.width / 2, text_y, UI_CENTER, m_servers.status_c);
+
+    if (uis.width >= 500 && m_servers.list.numItems)
+        UI_DrawString(uis.width - 8, text_y, UI_RIGHT | UI_ALTCOLOR, m_servers.status_r);
 }
 
 static void Draw(menuFrameWork_t *self)
 {
     Menu_Draw(self);
+
+    // Title banner bar
+    R_DrawFill32(0, 0, uis.width, 16, MakeColor(14, 11, 9, 220));
+    R_DrawFill32(0, 15, uis.width, 1, MakeColor(180, 140, 50, 140));
+
+    UI_DrawString(8, 4, UI_LEFT | UI_ALTCOLOR, "SERVER BROWSER // ACTIVE SERVERS");
+
+    if (m_servers.pingstage) {
+        UI_DrawString(uis.width - 8, 4, UI_RIGHT, "QUERYING / PINGING...");
+    } else {
+        UI_DrawString(uis.width - 8, 4, UI_RIGHT | UI_ALTCOLOR, "OPENKP");
+    }
+
     DrawStatus();
 }
 
@@ -1064,6 +1448,7 @@ static void Expose(menuFrameWork_t *self)
 
 static void Free(menuFrameWork_t *self)
 {
+    ClearServers();
     Z_Free(m_servers.menu.items);
     memset(&m_servers, 0, sizeof(m_servers));
 }
@@ -1085,7 +1470,7 @@ void M_Menu_Servers(void)
     ui_pingrate = Cvar_Get("ui_pingrate", "0", 0);
 
     m_servers.menu.name     = "servers";
-    m_servers.menu.title    = "Server Browser";
+    m_servers.menu.title    = NULL;
 
     m_servers.menu.draw         = Draw;
     m_servers.menu.expose       = Expose;

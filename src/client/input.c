@@ -673,6 +673,8 @@ static const cmdreg_t c_input[] = {
     { "-attack", IN_AttackUp },
     { "+use", IN_UseDown },
     { "-use", IN_UseUp },
+    { "+activate", IN_UseDown },
+    { "-activate", IN_UseUp },
     { "impulse", IN_Impulse },
     { "+klook", IN_KLookDown },
     { "-klook", IN_KLookUp },
@@ -715,6 +717,7 @@ void CL_RegisterInput(void)
     sensitivity = Cvar_Get("sensitivity", "3", CVAR_ARCHIVE);
 
     m_pitch = Cvar_Get("m_pitch", "0.022", CVAR_ARCHIVE);
+    Cvar_Get("antilag", "1", CVAR_ARCHIVE);
     m_yaw = Cvar_Get("m_yaw", "0.022", 0);
     m_forward = Cvar_Get("m_forward", "1", 0);
     m_side = Cvar_Get("m_side", "1", 0);
@@ -927,7 +930,13 @@ static void CL_SendDefaultCmd(void)
     MSG_WriteDeltaUsercmd(oldcmd, cmd, version);
     MSG_WriteByte(cl.lightlevel);
 
-    if (cls.serverProtocol <= PROTOCOL_VERSION_DEFAULT) {
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        msg_write.data[checksumIndex] = COM_BlockSequenceCheckByte(
+            msg_write.data + checksumIndex + 1,
+            msg_write.cursize - checksumIndex - 1,
+            cls.netchan.outgoing_sequence,
+            cls.challenge);
+    } else if (cls.serverProtocol <= PROTOCOL_VERSION_DEFAULT) {
         // calculate a checksum over the move commands
         msg_write.data[checksumIndex] = COM_BlockSequenceCRCByte(
             msg_write.data + checksumIndex + 1,

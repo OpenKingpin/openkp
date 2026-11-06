@@ -50,7 +50,12 @@ static void Action_Init(menuAction_t *a)
 
     a->generic.rect.x = a->generic.x;
     a->generic.rect.y = a->generic.y;
-    UI_StringDimensions(&a->generic.rect, a->generic.uiFlags, a->generic.name);
+    if (a->generic.height > 0) {
+        a->generic.rect.width = a->generic.width;
+        a->generic.rect.height = a->generic.height;
+    } else {
+        UI_StringDimensions(&a->generic.rect, a->generic.uiFlags, a->generic.name);
+    }
 }
 
 
@@ -2141,6 +2146,8 @@ void Menu_Draw(menuFrameWork_t *menu)
     if (menu->image) {
         R_DrawKeepAspectPic(0, menu->y1, uis.width,
                             menu->y2 - menu->y1, menu->image);
+        R_DrawFill32(0, menu->y1, uis.width,
+                     menu->y2 - menu->y1, MakeColor(0, 0, 0, 160));
     } else {
         R_DrawFill32(0, menu->y1, uis.width,
                      menu->y2 - menu->y1, menu->color.u32);

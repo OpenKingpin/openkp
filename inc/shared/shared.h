@@ -840,12 +840,20 @@ COLLISION DETECTION
 
 #define SURF_ALPHATEST          BIT(25)     // used by KMQuake2
 
+// Kingpin window and alpha surfaces. The high bits below are N64 flags in
+// Quake II, and Kingpin uses those same bits for materials and reflections.
+#define SURF_ALPHA              BIT(12)
+#define SURF_WNDW33             BIT(14)
+#define SURF_WNDW66             BIT(15)
+
 //KEX
 #define SURF_N64_UV             BIT(28)
 #define SURF_N64_SCROLL_X       BIT(29)
 #define SURF_N64_SCROLL_Y       BIT(30)
 #define SURF_N64_SCROLL_FLIP    BIT(31)
 //KEX
+
+#define SURF_KP_N64_MASK        (SURF_ALPHATEST | SURF_N64_UV | SURF_N64_SCROLL_X | SURF_N64_SCROLL_Y | SURF_N64_SCROLL_FLIP)
 
 // content masks
 #define MASK_ALL                (-1)
@@ -1409,6 +1417,30 @@ enum {
 #define CS_GENERAL_OLD          (CS_PLAYERSKINS_OLD + MAX_CLIENTS)
 #define MAX_CONFIGSTRINGS_OLD   (CS_GENERAL_OLD + MAX_GENERAL)
 
+// Kingpin 1.21 configstring map. Sounds are 384, and modelskins,
+// light flares, and junior strings sit between images and general.
+#define MAX_EDICTS_KP           2048
+#define MAX_MODELS_KP           256
+#define MAX_SOUNDS_KP           384
+#define MAX_IMAGES_KP           256
+#define MAX_LIGHTFLARES_KP      128
+#define MAX_JUNIOR_STRINGS_KP   512
+#define CS_SERVER_VERSION_KP    29
+#define CS_STATUSBAR_KP         7
+#define CS_MAXCLIENTS_KP        30
+#define CS_MAPCHECKSUM_KP       31
+#define CS_MODELS_KP            32
+#define CS_SOUNDS_KP            (CS_MODELS_KP + MAX_MODELS_KP)
+#define CS_IMAGES_KP            (CS_SOUNDS_KP + MAX_SOUNDS_KP)
+#define CS_MODELSKINS_KP        (CS_IMAGES_KP + MAX_IMAGES_KP)
+#define CS_LIGHTS_KP            (CS_MODELSKINS_KP + MAX_MODELS_KP)
+#define CS_ITEMS_KP             (CS_LIGHTS_KP + MAX_LIGHTSTYLES)
+#define CS_PLAYERSKINS_KP       (CS_ITEMS_KP + MAX_ITEMS)
+#define CS_LIGHTFLARES_KP       (CS_PLAYERSKINS_KP + MAX_CLIENTS)
+#define CS_JUNIORS_KP           (CS_LIGHTFLARES_KP + MAX_LIGHTFLARES_KP)
+#define CS_GENERAL_KP           (CS_JUNIORS_KP + MAX_JUNIOR_STRINGS_KP)
+#define MAX_CONFIGSTRINGS_KP    (CS_GENERAL_KP + MAX_GENERAL)
+
 #if USE_PROTOCOL_EXTENSIONS
 #define CS_AIRACCEL         59
 #define CS_MAXCLIENTS       60
@@ -1462,6 +1494,7 @@ typedef struct {
 
 extern const cs_remap_t     cs_remap_old;
 extern const cs_remap_t     cs_remap_new;
+extern const cs_remap_t     cs_remap_kingpin;
 
 #endif
 
@@ -1512,6 +1545,19 @@ typedef struct {
 
 //==============================================
 
+#if USE_PROTOCOL_EXTENSIONS
+#define KP_MAX_MODEL_PARTS          8
+#define KP_MAX_MODELPART_OBJECTS    8
+
+typedef struct {
+    int     modelindex;
+    byte    invisible_objects;
+    byte    skinnum[KP_MAX_MODELPART_OBJECTS];
+} kp_model_part_t;
+#endif
+
+//==============================================
+
 // player_state_t is the information needed in addition to pmove_state_t
 // to rendered a view.  There will only be 10 player_state_t sent each second,
 // but the number of pmove_state_t changes will be relative to client
@@ -1538,6 +1584,10 @@ typedef struct {
     int         rdflags;        // refdef flags
 
     short       stats[MAX_STATS_OLD];   // fast status bar updates
+
+#if USE_PROTOCOL_EXTENSIONS
+    kp_model_part_t gun_parts[KP_MAX_MODEL_PARTS];
+#endif
 } player_state_old_t;
 
 #if USE_NEW_GAME_API
@@ -1587,6 +1637,10 @@ typedef struct {
     int         reserved_4;
 
     int16_t     stats[MAX_STATS_NEW];   // fast status bar updates
+
+#if USE_PROTOCOL_EXTENSIONS
+    kp_model_part_t gun_parts[KP_MAX_MODEL_PARTS];
+#endif
 } player_state_new_t;
 #endif
 
@@ -1606,6 +1660,10 @@ typedef struct {
     float       scale;
     float       loop_volume;
     float       loop_attenuation;
+    int         renderfx2;
+    int         num_parts;
+    int         model_light;
+    kp_model_part_t model_parts[KP_MAX_MODEL_PARTS];
 } entity_state_extension_t;
 
 #endif

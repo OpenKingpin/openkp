@@ -324,7 +324,22 @@ bool CL_ForwardToServer(void)
     char    *cmd;
 
     cmd = Cmd_Argv(0);
-    if (cls.state != ca_active || *cmd == '-' || *cmd == '+') {
+    if (*cmd == '-' || *cmd == '+') {
+        return false;
+    }
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        if (cls.state < ca_connected)
+            return false;
+        char *args = Cmd_Args();
+        if (args && *args)
+            CL_ClientCommand(va("%s %s", cmd, args));
+        else
+            CL_ClientCommand(cmd);
+        return true;
+    }
+
+    if (cls.state != ca_active) {
         return false;
     }
 
@@ -350,7 +365,11 @@ static void CL_ForwardToServer_f(void)
 
     // don't forward the first argument
     if (Cmd_Argc() > 1) {
-        CL_ClientCommand(Cmd_RawArgs());
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ClientCommand(Cmd_Args());
+        } else {
+            CL_ClientCommand(Cmd_RawArgs());
+        }
     }
 }
 
@@ -768,9 +787,19 @@ CL_Disconnect_f
 */
 static void CL_Disconnect_f(void)
 {
-    if (cls.state > ca_disconnected) {
-        Com_Error(ERR_DISCONNECT, "Disconnected from server");
+    if (cls.state <= ca_disconnected) {
+        return;
     }
+
+    // kpded2 stuffs "disconnect; game main; reconnect" after a pak download.
+    // Leave the rest of that buffer running.
+    if (Cmd_From() == FROM_STUFFTEXT) {
+        Com_Printf("Disconnected from server\n");
+        CL_Disconnect(ERR_RECONNECT);
+        return;
+    }
+
+    Com_Error(ERR_DISCONNECT, "Disconnected from server");
 }
 
 static void CL_ServerStatus_c(genctx_t *ctx, int argnum)
@@ -1283,7 +1312,8 @@ static void CL_ConnectionlessPacket(void)
             cls.serverProtocol = PROTOCOL_VERSION_Q2PRO;
         }
 
-        // choose supported protocol
+        // kpded2 does not advertise Q2PRO or R1Q2. Fall back to Kingpin
+        // protocol 32 instead of Quake II 34.
         switch (cls.serverProtocol) {
         case PROTOCOL_VERSION_Q2PRO:
             if (mask & 2) {
@@ -1295,9 +1325,13 @@ static void CL_ConnectionlessPacket(void)
             if (mask & 1) {
                 break;
             }
-            // fall through
+            cls.serverProtocol = PROTOCOL_VERSION_KINGPIN;
+            break;
+        case PROTOCOL_VERSION_DEFAULT:
+        case PROTOCOL_VERSION_KINGPIN:
+            break;
         default:
-            cls.serverProtocol = PROTOCOL_VERSION_DEFAULT;
+            cls.serverProtocol = PROTOCOL_VERSION_KINGPIN;
             break;
         }
         Com_DPrintf("Selected protocol %d\n", cls.serverProtocol);
@@ -1435,6 +1469,12 @@ static void CL_ConnectionlessPacket(void)
     // server responding to a status broadcast
     if (!strcmp(c, "info")) {
         CL_ParseInfoMessage();
+        return;
+    }
+
+    // Kingpin master: "servers\n" then 6-byte address records
+    if (!strcmp(c, "servers")) {
+        UI_AddMasterServers();
         return;
     }
 
@@ -2077,7 +2117,9 @@ static void dump_program(const char *text, const char *name)
 
 static void CL_DumpStatusbar_f(void)
 {
-    dump_program(cl.configstrings[CS_STATUSBAR], "status bar");
+    int bar = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? CS_STATUSBAR_KP : CS_STATUSBAR;
+
+    dump_program(cl.configstrings[bar], "status bar");
 }
 
 static void CL_DumpLayout_f(void)
@@ -2651,6 +2693,11 @@ void cl_timeout_changed(cvar_t *self)
     self->integer = 1000 * Cvar_ClampValue(self, 0, 24 * 24 * 60 * 60);
 }
 
+static void CL_InvenDrop_f(void)
+{
+    Cbuf_AddText(&cmd_buffer, "invdrop\n");
+}
+
 static const cmdreg_t c_client[] = {
     { "cmd", CL_ForwardToServer_f },
     { "pause", CL_Pause_f },
@@ -2672,6 +2719,7 @@ static const cmdreg_t c_client[] = {
     { "writeconfig", CL_WriteConfig_f, CL_WriteConfig_c },
     { "vid_restart", CL_RestartRefresh_f },
     { "r_reload", CL_ReloadRefresh_f },
+    { "inven_drop", CL_InvenDrop_f },
 
     //
     // forward to server commands
@@ -2687,6 +2735,9 @@ static const cmdreg_t c_client[] = {
     { "give", NULL, CL_Item_c }, { "god" }, { "notarget" }, { "noclip" },
     { "invuse" }, { "invprev" }, { "invnext" }, { "invdrop" },
     { "weapnext" }, { "weapprev" },
+    { "hud" }, { "holster" }, { "flashlight" }, { "reload" },
+    { "key1" }, { "key2" }, { "key3" }, { "immortal" },
+    { "invnextw" }, { "invprevw" }, { "invnextp" }, { "invprevp" },
 
     { NULL }
 };
@@ -2704,7 +2755,6 @@ static void CL_InitLocal(void)
     cls.state = ca_disconnected;
     cls.connect_time -= CONNECT_INSTANT;
 
-    CL_RegisterInput();
     CL_InitDemos();
     LOC_Init();
     CL_InitAscii();
@@ -2826,6 +2876,14 @@ static void CL_InitLocal(void)
     info_gender = Cvar_Get("gender", "male", CVAR_USERINFO | CVAR_ARCHIVE);
     info_gender->modified = false; // clear this so we know when user sets it manually
     info_uf = Cvar_Get("uf", "", CVAR_USERINFO);
+    // kpded2 rejects protocol 32 clients whose userinfo ver is below 120.
+    Cvar_Get("ver", "121", CVAR_USERINFO);
+    // Kingpin servers query parental lock and nocurse settings via stufftext cmd.
+    Cvar_Get("nocurse", "0", CVAR_ARCHIVE);
+    Cvar_Get("cl_parental_lock", "0", CVAR_ARCHIVE);
+    Cvar_Get("cl_parental_override", "0", CVAR_ARCHIVE);
+    Cvar_Get("error", "0", 0);
+    Cvar_Get("cv", "0", 0);
 
 
     //
@@ -2868,7 +2926,9 @@ Called before executing configs to register commands such as `bind' or
 */
 void CL_PreInit(void)
 {
+    CL_RegisterInput();
     Key_Init();
+    Key_SetDefaultBindings();
 
     List_Init(&cl_ignore_text);
     List_Init(&cl_ignore_nick);
@@ -3321,6 +3381,7 @@ unsigned CL_Frame(unsigned msec)
 
     // resend a connection request if necessary
     CL_CheckForResend();
+    CL_DownloadTick();
 
     // read user intentions
     CL_UpdateCmd(main_extra);
@@ -3453,6 +3514,16 @@ void CL_Init(void)
     CL_LoadStuffTextWhiteList();
 
     HTTP_Init();
+    UI_CheckServerMirrorCache();
+
+    // Detect and upgrade archaic 1999 Kingpin default binds (Space = +back, Mouse2 = +forward)
+    // or uninitialized controls.
+    const char *space_bind = Key_GetBinding("+back");
+    const char *m2_bind = Key_GetBinding("+forward");
+    if (!space_bind[0] || !Q_stricmp(space_bind, "SPACE") || !Q_stricmp(m2_bind, "MOUSE2")) {
+        Com_Printf("Applying modern WASD default controls...\n");
+        Key_SetDefaultBindings();
+    }
 
     UI_OpenMenu(UIMENU_DEFAULT);
 

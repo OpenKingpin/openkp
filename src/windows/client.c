@@ -387,6 +387,8 @@ void Win_SetMode(void)
 
     ChangeDisplaySettings(NULL, 0);
 
+    VID_AdoptDesktop(GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+
     // parse vid_geometry specification
     VID_GetGeometry(&win.rc);
 

@@ -91,6 +91,222 @@ default_model:
 
 /*
 ================
+CL_LoadKingpinClientinfo
+
+modelindex 255 is not sent with head, body, or legs. Those files live in
+players/<model>/ and the skin numbers in the configstring pick
+<head> <body> <legs> under the directories in skinfolder.txt.
+================
+*/
+static void CL_KingpinToken(const char **pp, char *out, size_t size)
+{
+    const char *p = *pp;
+    size_t n = 0;
+
+    while (*p == ' ')
+        p++;
+    while (p[n] && p[n] != ' ' && n + 1 < size)
+        n++;
+    memcpy(out, p, n);
+    out[n] = 0;
+    *pp = p + n;
+}
+
+void CL_KingpinSkinDirs(const char *model, char *head, char *body, char *legs, size_t size)
+{
+    char path[MAX_QPATH];
+    char *data, *p, *eol;
+    int len;
+
+    head[0] = body[0] = legs[0] = 0;
+    if (Q_snprintf(path, sizeof(path), "players/%s/skinfolder.txt", model) < (int)sizeof(path)) {
+        len = FS_LoadFile(path, (void **)&data);
+        if (data) {
+            (void)len;
+            p = data;
+            while (*p) {
+                char *dst = NULL;
+                size_t n;
+                const char *s;
+
+                eol = strchr(p, '\n');
+                if (!eol)
+                    eol = p + strlen(p);
+                if (!Q_strncasecmp(p, "head:", 5))
+                    dst = head;
+                else if (!Q_strncasecmp(p, "body:", 5))
+                    dst = body;
+                else if (!Q_strncasecmp(p, "legs:", 5))
+                    dst = legs;
+                if (dst) {
+                    s = p + 5;
+                    n = (size_t)(eol - s);
+                    while (n && (s[n - 1] == '\r' || s[n - 1] == ' '))
+                        n--;
+                    if (n >= size)
+                        n = size - 1;
+                    memcpy(dst, s, n);
+                    dst[n] = 0;
+                }
+                if (!*eol)
+                    break;
+                p = eol + 1;
+            }
+            FS_FreeFile(data);
+        }
+    }
+
+    if (!head[0])
+        Q_snprintf(head, size, "players/%s", model);
+    if (!body[0])
+        Q_snprintf(body, size, "players/%s", model);
+    if (!legs[0])
+        Q_snprintf(legs, size, "players/%s", model);
+}
+
+static qhandle_t CL_RegisterKingpinPart(const char *model, const char *part)
+{
+    char path[MAX_QPATH];
+
+    if (Q_snprintf(path, sizeof(path), "players/%s/%s.mdx", model, part) >= (int)sizeof(path))
+        return 0;
+    return R_RegisterModel(path);
+}
+
+qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const char *part, const char *code)
+{
+    char path[MAX_QPATH];
+    const char *slash;
+
+    if (!code || !code[0] || !part || !part[0])
+        return 0;
+
+    slash = strrchr(code, '/');
+    if (slash) {
+        char subdir[MAX_QPATH];
+        const char *skinname = slash + 1;
+        size_t dirlen = slash - code;
+
+        if (dirlen >= sizeof(subdir))
+            dirlen = sizeof(subdir) - 1;
+        memcpy(subdir, code, dirlen);
+        subdir[dirlen] = 0;
+
+        if (folder && folder[0]) {
+            Q_snprintf(path, sizeof(path), "%s/%s/%s_%s.tga", folder, subdir, part, skinname);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+            Q_snprintf(path, sizeof(path), "%s/%s/%s_%s.pcx", folder, subdir, part, skinname);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+        }
+
+        if (model && model[0]) {
+            Q_snprintf(path, sizeof(path), "players/%s/%s/%s_%s.tga", model, subdir, part, skinname);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+            Q_snprintf(path, sizeof(path), "players/%s/%s/%s_%s.pcx", model, subdir, part, skinname);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+        }
+    } else {
+        if (folder && folder[0]) {
+            Q_snprintf(path, sizeof(path), "%s/%s_%s.tga", folder, part, code);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+            Q_snprintf(path, sizeof(path), "%s/%s_%s.pcx", folder, part, code);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+        }
+
+        if (model && model[0]) {
+            Q_snprintf(path, sizeof(path), "players/%s/%s_%s.tga", model, part, code);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+            Q_snprintf(path, sizeof(path), "players/%s/%s_%s.pcx", model, part, code);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+        }
+    }
+
+    return 0;
+}
+
+static void CL_LoadKingpinClientinfo(clientinfo_t *ci, const char *s)
+{
+    const char *spec, *slash, *cursor;
+    char head_code[MAX_QPATH], body_code[MAX_QPATH], legs_code[MAX_QPATH];
+    char head_dir[MAX_QPATH], body_dir[MAX_QPATH], legs_dir[MAX_QPATH];
+    size_t namelen;
+
+    memset(ci, 0, sizeof(*ci));
+
+    spec = strchr(s, '\\');
+    if (spec) {
+        namelen = (size_t)(spec - s);
+        if (namelen >= sizeof(ci->name))
+            namelen = sizeof(ci->name) - 1;
+        memcpy(ci->name, s, namelen);
+        ci->name[namelen] = 0;
+        spec++;
+    } else {
+        spec = s;
+    }
+
+    slash = strchr(spec, '/');
+    if (!slash || slash == spec)
+        Q_strlcpy(ci->model_name, "male_thug", sizeof(ci->model_name));
+    else {
+        namelen = (size_t)(slash - spec);
+        if (namelen >= sizeof(ci->model_name))
+            namelen = sizeof(ci->model_name) - 1;
+        memcpy(ci->model_name, spec, namelen);
+        ci->model_name[namelen] = 0;
+        spec = slash + 1;
+    }
+
+    cursor = spec;
+    CL_KingpinToken(&cursor, head_code, sizeof(head_code));
+    CL_KingpinToken(&cursor, body_code, sizeof(body_code));
+    CL_KingpinToken(&cursor, legs_code, sizeof(legs_code));
+    Q_snprintf(ci->skin_name, sizeof(ci->skin_name), "%s %s %s", head_code, body_code, legs_code);
+
+    if (!COM_IsPath(ci->model_name))
+        Q_strlcpy(ci->model_name, "male_thug", sizeof(ci->model_name));
+
+    ci->kp_head = CL_RegisterKingpinPart(ci->model_name, "head");
+    ci->kp_legs = CL_RegisterKingpinPart(ci->model_name, "legs");
+    ci->kp_body = CL_RegisterKingpinPart(ci->model_name, "body");
+    if (!ci->kp_body && strcmp(ci->model_name, "male_thug")) {
+        Q_strlcpy(ci->model_name, "male_thug", sizeof(ci->model_name));
+        ci->kp_head = CL_RegisterKingpinPart(ci->model_name, "head");
+        ci->kp_legs = CL_RegisterKingpinPart(ci->model_name, "legs");
+        ci->kp_body = CL_RegisterKingpinPart(ci->model_name, "body");
+    }
+
+    CL_KingpinSkinDirs(ci->model_name, head_dir, body_dir, legs_dir, sizeof(head_dir));
+    ci->kp_head_skin = CL_RegisterKingpinSkin(ci->model_name, head_dir, "head", head_code);
+    ci->kp_body_skin = CL_RegisterKingpinSkin(ci->model_name, body_dir, "body", body_code);
+    ci->kp_legs_skin = CL_RegisterKingpinSkin(ci->model_name, legs_dir, "legs", legs_code);
+
+    ci->model = ci->kp_body;
+    ci->skin = ci->kp_body_skin;
+
+    for (int w = 0; w < cl.numWeaponModels; w++) {
+        char weapon_filename[MAX_QPATH];
+        Q_snprintf(weapon_filename, sizeof(weapon_filename),
+                   "players/%s/%s", ci->model_name, cl.weaponModels[w]);
+        ci->weaponmodel[w] = R_RegisterModel(weapon_filename);
+        if (!ci->weaponmodel[w] && strcmp(ci->model_name, "male_thug")) {
+            Q_snprintf(weapon_filename, sizeof(weapon_filename),
+                       "players/male_thug/%s", cl.weaponModels[w]);
+            ci->weaponmodel[w] = R_RegisterModel(weapon_filename);
+        }
+    }
+}
+
+/*
+================
 CL_LoadClientinfo
 
 ================
@@ -98,6 +314,11 @@ CL_LoadClientinfo
 void CL_LoadClientinfo(clientinfo_t *ci, const char *s)
 {
     int         i;
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        CL_LoadKingpinClientinfo(ci, s);
+        return;
+    }
     char        model_name[MAX_QPATH];
     char        skin_name[MAX_QPATH];
     char        model_filename[MAX_QPATH];
@@ -265,7 +486,10 @@ void CL_RegisterVWepModels(void)
     char        *name;
 
     cl.numWeaponModels = 1;
-    strcpy(cl.weaponModels[0], "weapon.md2");
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+        strcpy(cl.weaponModels[0], "w_pipe.mdx");
+    else
+        strcpy(cl.weaponModels[0], "weapon.md2");
 
     // only default model when vwep is off
     if (!cl_vwep->integer) {
@@ -338,6 +562,17 @@ static qhandle_t CL_RegisterImage(const char *s)
             return R_RegisterSkin(s);
     }
 
+    // Kingpin puts the download list in the image slots before spawn.
+    // Those paths are sounds and maps, not pictures.
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && strchr(s, '/')) {
+        const char *ext = COM_FileExtension(s);
+
+        if (ext && strcmp(ext, ".pcx") && strcmp(ext, ".tga") &&
+            strcmp(ext, ".wal") && strcmp(ext, ".jpg") && strcmp(ext, ".png"))
+            return 0;
+        return R_RegisterSkin(s);
+    }
+
     return R_RegisterTempPic(s);
 }
 
@@ -360,6 +595,8 @@ void CL_PrepRefresh(void)
 
     // register models, pics, and skins
     R_BeginRegistration(cl.mapname);
+
+    CL_RegisterVWepModels();
 
     CL_LoadState(LOAD_MODELS);
 
@@ -394,7 +631,10 @@ void CL_PrepRefresh(void)
         CL_LoadClientinfo(&cl.clientinfo[i], name);
     }
 
-    CL_LoadClientinfo(&cl.baseclientinfo, "unnamed\\male/grunt");
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+        CL_LoadClientinfo(&cl.baseclientinfo, "unnamed\\male_thug/016 016 016");
+    else
+        CL_LoadClientinfo(&cl.baseclientinfo, "unnamed\\male/grunt");
 
     // set sky textures and speed
     CL_SetSky();
@@ -428,7 +668,9 @@ void CL_UpdateConfigstring(int index)
     }
 
     if (index == cl.csr.airaccel) {
-        cl.pmp.airaccelerate = cl.pmp.qwmode || Q_atoi(s);
+        // Kingpin stores the server version here, not an air-accel flag.
+        if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN)
+            cl.pmp.airaccelerate = cl.pmp.qwmode || Q_atoi(s);
         return;
     }
 

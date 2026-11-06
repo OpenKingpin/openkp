@@ -36,6 +36,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <X11/Xresource.h>
 #include <X11/XKBlib.h>
 #include <X11/extensions/XInput2.h>
+#if USE_XRANDR
+#include <X11/extensions/Xrandr.h>
+#endif
 
 #include <GL/glx.h>
 
@@ -330,6 +333,49 @@ static bool init(void)
         .event_mask = StructureNotifyMask | FocusChangeMask | KeyPressMask | KeyReleaseMask |
             ButtonPressMask | ButtonReleaseMask | PointerMotionMask | PropertyChangeMask,
     };
+
+    {
+        int dw = DisplayWidth(x11.dpy, x11.screen);
+        int dh = DisplayHeight(x11.dpy, x11.screen);
+#if USE_XRANDR
+        int ev, err;
+
+        if (XRRQueryExtension(x11.dpy, &ev, &err)) {
+            XRRScreenResources *res = XRRGetScreenResourcesCurrent(x11.dpy, x11.root);
+            RROutput primary = XRRGetOutputPrimary(x11.dpy, x11.root);
+
+            if (res) {
+                for (int i = 0; i < res->noutput; i++) {
+                    XRROutputInfo *info;
+                    XRRCrtcInfo *crtc;
+
+                    if (primary && res->outputs[i] != primary)
+                        continue;
+                    info = XRRGetOutputInfo(x11.dpy, res, res->outputs[i]);
+                    if (!info)
+                        continue;
+                    crtc = NULL;
+                    if (info->connection == RR_Connected && info->crtc)
+                        crtc = XRRGetCrtcInfo(x11.dpy, res, info->crtc);
+                    if (crtc && crtc->width >= 640 && crtc->height >= 480) {
+                        dw = crtc->width;
+                        dh = crtc->height;
+                        XRRFreeCrtcInfo(crtc);
+                        XRRFreeOutputInfo(info);
+                        break;
+                    }
+                    if (crtc)
+                        XRRFreeCrtcInfo(crtc);
+                    XRRFreeOutputInfo(info);
+                    if (primary)
+                        break;
+                }
+                XRRFreeScreenResources(res);
+            }
+        }
+#endif
+        VID_AdoptDesktop(dw, dh);
+    }
 
     VID_GetGeometry(&x11.rc);
 

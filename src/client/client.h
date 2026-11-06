@@ -106,6 +106,12 @@ typedef struct {
     char skin_name[MAX_QPATH];
     qhandle_t model;
     qhandle_t weaponmodel[MAX_CLIENTWEAPONMODELS];
+    qhandle_t kp_head;
+    qhandle_t kp_legs;
+    qhandle_t kp_body;
+    qhandle_t kp_head_skin;
+    qhandle_t kp_legs_skin;
+    qhandle_t kp_body_skin;
 } clientinfo_t;
 
 typedef struct {
@@ -456,6 +462,9 @@ typedef struct {
         dlqueue_t   *current;           // path being downloaded
         int         percent;            // how much downloaded
         int64_t     position;           // how much downloaded (in bytes)
+        int         id;                 // Kingpin download5 id
+        int         size;               // Kingpin file size, once known
+        unsigned    request_time;       // last download5/nextdl2, for retry
         qhandle_t   file;               // UDP file transfer from server
         char        temp[MAX_QPATH + 4];// account 4 bytes for .tmp suffix
 #if USE_ZLIB
@@ -656,6 +665,8 @@ typedef enum {
 
 void CL_ParsePlayerSkin(char *name, char *model, char *skin, const char *s);
 void CL_LoadClientinfo(clientinfo_t *ci, const char *s);
+void CL_KingpinSkinDirs(const char *model, char *head, char *body, char *legs, size_t size);
+qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const char *part, const char *code);
 void CL_LoadState(load_state_t state);
 void CL_RegisterSounds(void);
 void CL_RegisterBspModels(void);
@@ -673,6 +684,8 @@ void CL_FinishDownload(dlqueue_t *q);
 void CL_CleanupDownloads(void);
 void CL_LoadDownloadIgnores(void);
 void CL_HandleDownload(const byte *data, int size, int percent, int decompressed_size);
+void CL_HandlePushDownload(const byte *data, int size, int filesize, int id, int kb);
+void CL_DownloadTick(void);
 bool CL_CheckDownloadExtension(const char *ext);
 void CL_StartNextDownload(void);
 void CL_RequestNextDownload(void);

@@ -32,7 +32,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "client/video.h"
 #include "refresh/refresh.h"
 #include "system/system.h"
-#include "../res/q2pro.xbm"
+#include "../res/openkp_icon.h"
 #include <SDL.h>
 
 static struct {
@@ -286,6 +286,13 @@ static bool init(void)
 
     SDL_SetEventFilter(my_event_filter, NULL);
 
+    {
+        SDL_DisplayMode mode;
+
+        if (!SDL_GetDesktopDisplayMode(0, &mode))
+            VID_AdoptDesktop(mode.w, mode.h);
+    }
+
     if (!VID_GetGeometry(&rc)) {
         rc.x = SDL_WINDOWPOS_UNDEFINED;
         rc.y = SDL_WINDOWPOS_UNDEFINED;
@@ -302,15 +309,11 @@ static bool init(void)
 
     SDL_SetWindowMinimumSize(sdl.window, 320, 240);
 
-    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(q2icon_bits, q2icon_width, q2icon_height,
-                                                           1, q2icon_width / 8, SDL_PIXELFORMAT_INDEX1LSB);
+    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom((void *)openkp_icon_rgba,
+                                                           openkp_icon_width, openkp_icon_height,
+                                                           32, openkp_icon_width * 4,
+                                                           SDL_PIXELFORMAT_RGBA32);
     if (icon) {
-        SDL_Color colors[2] = {
-            { 255, 255, 255 },
-            {   0, 128, 128 }
-        };
-        SDL_SetPaletteColors(icon->format->palette, colors, 0, 2);
-        SDL_SetColorKey(icon, SDL_TRUE, 0);
         SDL_SetWindowIcon(sdl.window, icon);
         SDL_FreeSurface(icon);
     }

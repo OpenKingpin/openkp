@@ -147,6 +147,9 @@ float V_CalcFov(float fov_x, float width, float height);
 
 #endif // !USE_CLIENT
 
+void CL_KingpinSkinDirs(const char *model, char *head, char *body, char *legs, size_t size);
+qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const char *part, const char *code);
+
 #if USE_CLIENT && USE_AVCODEC
 int SCR_CheckForCinematic(const char *name);
 void SCR_Cinematic_g(genctx_t *ctx);

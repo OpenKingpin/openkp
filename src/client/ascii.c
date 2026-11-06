@@ -334,7 +334,7 @@ static void SCR_ScoreShot_f(void)
         buffer[i * (TH_WIDTH + 1) + TH_WIDTH] = '\n';
     }
 
-    TH_DrawLayoutString(buffer, cl.configstrings[CS_STATUSBAR]);
+    TH_DrawLayoutString(buffer, cl.configstrings[cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? CS_STATUSBAR_KP : CS_STATUSBAR]);
     TH_DrawLayoutString(buffer, cl.layout);
 
     FS_Write(buffer, sizeof(buffer), f);
@@ -361,7 +361,7 @@ static void SCR_ScoreDump_f(void)
     }
     buffer[i * (TH_WIDTH + 1) + TH_WIDTH] = 0;
 
-    TH_DrawLayoutString(buffer, cl.configstrings[CS_STATUSBAR]);
+    TH_DrawLayoutString(buffer, cl.configstrings[cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? CS_STATUSBAR_KP : CS_STATUSBAR]);
     TH_DrawLayoutString(buffer, cl.layout);
 
     Com_Printf("%s\n", buffer);

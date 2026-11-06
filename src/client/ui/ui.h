@@ -257,9 +257,13 @@ typedef struct {
 #define MAX_PLAYERMODELS 1024
 
 typedef struct {
-    int nskins;
-    char **skindisplaynames;
     char *directory;
+    int nhead;
+    char **head_skins;
+    int nbody;
+    char **body_skins;
+    int nlegs;
+    char **legs_skins;
 } playerModelInfo_t;
 
 void PlayerModel_Load(void);
@@ -355,3 +359,4 @@ void        Menu_Free(menuFrameWork_t *menu);
 void M_Menu_PlayerConfig(void);
 void M_Menu_Demos(void);
 void M_Menu_Servers(void);
+void M_Menu_Kingpin(void);

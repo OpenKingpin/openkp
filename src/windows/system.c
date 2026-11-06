@@ -891,6 +891,187 @@ const char *Sys_ErrorString(int err)
     return buf;
 }
 
+#include <shlobj.h>
+
+static bool Sys_IsKingpinDir(const char *dir)
+{
+    if (!dir || !*dir)
+        return false;
+
+    char path[MAX_OSPATH];
+    DWORD attr;
+
+    Q_snprintf(path, sizeof(path), "%s/main/pak0.pak", dir);
+    attr = GetFileAttributesA(path);
+    if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY))
+        return true;
+
+    Q_snprintf(path, sizeof(path), "%s/main/PAK0.PAK", dir);
+    attr = GetFileAttributesA(path);
+    if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY))
+        return true;
+
+    Q_snprintf(path, sizeof(path), "%s/main", dir);
+    attr = GetFileAttributesA(path);
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+        return true;
+
+    return false;
+}
+
+static void Sys_SaveKingpinDir(const char *dir)
+{
+    const char *appdata = getenv("APPDATA");
+    if (!appdata || !*appdata || !dir || !*dir)
+        return;
+
+    char dirpath[MAX_OSPATH];
+    Q_snprintf(dirpath, sizeof(dirpath), "%s\\OpenKP", appdata);
+    CreateDirectoryA(dirpath, NULL);
+
+    char filepath[MAX_OSPATH];
+    Q_snprintf(filepath, sizeof(filepath), "%s\\OpenKP\\basedir", appdata);
+    FILE *f = fopen(filepath, "w");
+    if (f) {
+        fprintf(f, "%s\n", dir);
+        fclose(f);
+    }
+}
+
+static bool Sys_ReadRegistryString(HKEY root, const char *subKey, const char *valName, char *out, size_t outSize)
+{
+    HKEY key;
+    if (RegOpenKeyExA(root, subKey, 0, KEY_READ, &key) != ERROR_SUCCESS)
+        return false;
+
+    DWORD type = 0;
+    DWORD size = (DWORD)outSize;
+    LONG res = RegQueryValueExA(key, valName, NULL, &type, (LPBYTE)out, &size);
+    RegCloseKey(key);
+
+    return (res == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ));
+}
+
+static const char *Sys_DetectKingpinDir(void)
+{
+    static char found[MAX_OSPATH];
+
+    // 1. Current directory
+    if (Sys_IsKingpinDir("."))
+        return ".";
+
+    // 2. Executable directory
+    char exe_dir[MAX_OSPATH];
+    if (GetModuleFileNameA(NULL, exe_dir, sizeof(exe_dir))) {
+        char *slash = strrchr(exe_dir, '\\');
+        if (!slash)
+            slash = strrchr(exe_dir, '/');
+        if (slash) {
+            *slash = '\0';
+            if (Sys_IsKingpinDir(exe_dir)) {
+                Q_strlcpy(found, exe_dir, sizeof(found));
+                return found;
+            }
+        }
+    }
+
+    // 3. Saved path in %APPDATA%\OpenKP\basedir
+    const char *appdata = getenv("APPDATA");
+    if (appdata && *appdata) {
+        char cfg_path[MAX_OSPATH];
+        Q_snprintf(cfg_path, sizeof(cfg_path), "%s\\OpenKP\\basedir", appdata);
+        FILE *f = fopen(cfg_path, "r");
+        if (f) {
+            if (fgets(found, sizeof(found), f)) {
+                char *nl = strpbrk(found, "\r\n");
+                if (nl) *nl = '\0';
+                if (Sys_IsKingpinDir(found)) {
+                    fclose(f);
+                    return found;
+                }
+            }
+            fclose(f);
+        }
+    }
+
+    // 4. Windows Registry: Steam Kingpin
+    char regBuf[MAX_OSPATH];
+    if (Sys_ReadRegistryString(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath", regBuf, sizeof(regBuf))) {
+        char steamKP[MAX_OSPATH];
+        Q_snprintf(steamKP, sizeof(steamKP), "%s\\steamapps\\common\\Kingpin", regBuf);
+        if (Sys_IsKingpinDir(steamKP)) {
+            Q_strlcpy(found, steamKP, sizeof(found));
+            Sys_SaveKingpinDir(found);
+            return found;
+        }
+    }
+
+    // 5. Windows Registry: GOG Kingpin
+    if (Sys_ReadRegistryString(HKEY_LOCAL_MACHINE, "SOFTWARE\\GOG.com\\Games\\1207658900", "PATH", regBuf, sizeof(regBuf)) ||
+        Sys_ReadRegistryString(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\GOG.com\\Games\\1207658900", "PATH", regBuf, sizeof(regBuf))) {
+        if (Sys_IsKingpinDir(regBuf)) {
+            Q_strlcpy(found, regBuf, sizeof(found));
+            Sys_SaveKingpinDir(found);
+            return found;
+        }
+    }
+
+    // 6. Windows Registry: Steam AppID 38430 uninstall entry
+    if (Sys_ReadRegistryString(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 38430", "InstallLocation", regBuf, sizeof(regBuf)) ||
+        Sys_ReadRegistryString(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 38430", "InstallLocation", regBuf, sizeof(regBuf))) {
+        if (Sys_IsKingpinDir(regBuf)) {
+            Q_strlcpy(found, regBuf, sizeof(found));
+            Sys_SaveKingpinDir(found);
+            return found;
+        }
+    }
+
+    // 7. Common default install locations
+    static const char *candidates[] = {
+        "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Kingpin",
+        "C:\\Program Files\\Steam\\steamapps\\common\\Kingpin",
+        "D:\\Steam\\steamapps\\common\\Kingpin",
+        "E:\\Steam\\steamapps\\common\\Kingpin",
+        "C:\\GOG Games\\Kingpin - Life of Crime",
+        "C:\\GOG Games\\Kingpin",
+        "D:\\GOG Games\\Kingpin - Life of Crime",
+        "C:\\Program Files (x86)\\GOG.com\\Kingpin",
+        "C:\\Program Files\\GOG.com\\Kingpin",
+        "C:\\Program Files (x86)\\Kingpin",
+        "C:\\Program Files\\Kingpin",
+        "C:\\Kingpin",
+        "D:\\Kingpin"
+    };
+
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        if (Sys_IsKingpinDir(candidates[i])) {
+            Q_strlcpy(found, candidates[i], sizeof(found));
+            Sys_SaveKingpinDir(found);
+            return found;
+        }
+    }
+
+    // 8. Prompt user via Win32 folder browser dialog if not dedicated server
+    if (!COM_DEDICATED) {
+        BROWSEINFOA bi = { 0 };
+        bi.lpszTitle = "Select Kingpin Installation Folder (containing main/)";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+        if (pidl) {
+            char selected[MAX_PATH];
+            if (SHGetPathFromIDListA(pidl, selected) && Sys_IsKingpinDir(selected)) {
+                Q_strlcpy(found, selected, sizeof(found));
+                Sys_SaveKingpinDir(found);
+                CoTaskMemFree(pidl);
+                return found;
+            }
+            CoTaskMemFree(pidl);
+        }
+    }
+
+    return ".";
+}
+
 /*
 ================
 Sys_Init
@@ -906,7 +1087,8 @@ void Sys_Init(void)
 
     // basedir <path>
     // allows the game to run from outside the data tree
-    sys_basedir = Cvar_Get("basedir", ".", CVAR_NOSET);
+    const char *default_basedir = Sys_DetectKingpinDir();
+    sys_basedir = Cvar_Get("basedir", default_basedir, CVAR_NOSET);
     sys_libdir = Cvar_Get("libdir", ".", CVAR_NOSET);
 
     // homedir <path>
