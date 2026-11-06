@@ -497,6 +497,113 @@ CL_AddPacketEntities
 
 ===============
 */
+static void CL_AddKingpinModelParts(entity_t *ent, const centity_state_t *s1)
+{
+    int p;
+    qhandle_t saved = ent->model;
+
+    for (p = 0; p < KP_MAX_MODEL_PARTS; p++) {
+        const kp_model_part_t *part = &s1->model_parts[p];
+        byte left;
+        qhandle_t model = 0;
+
+        if (part->modelindex <= 0 || part->modelindex >= cl.csr.max_models)
+            continue;
+        if (part->modelindex == s1->modelindex)
+            continue;
+
+        const char *name = cl.configstrings[cl.csr.models + part->modelindex];
+        if (name[0] == '#') {
+            const clientinfo_t *ci = NULL;
+            if (s1->modelindex == MODELINDEX_PLAYER) {
+                int client = s1->skinnum & 0xff;
+                if (client >= 0 && client < MAX_CLIENTS)
+                    ci = &cl.clientinfo[client];
+            }
+            if (!ci || (!ci->kp_body && !ci->kp_head && !ci->kp_legs))
+                ci = &cl.baseclientinfo;
+
+            char weapon_path[MAX_QPATH];
+            Q_snprintf(weapon_path, sizeof(weapon_path), "players/%s/%s",
+                       ci->model_name[0] ? ci->model_name : "male_thug", name + 1);
+            model = R_RegisterModel(weapon_path);
+            if (!model) {
+                Q_snprintf(weapon_path, sizeof(weapon_path), "players/male_thug/%s", name + 1);
+                model = R_RegisterModel(weapon_path);
+            }
+        } else {
+            model = cl.model_draw[part->modelindex];
+        }
+
+        if (!model)
+            continue;
+
+        ent->model = model;
+        ent->skin = 0;
+        left = (byte)~part->invisible_objects;
+        if (!left)
+            continue;
+
+        while (left) {
+            int obj, j;
+            byte skin, show;
+
+            for (obj = 0; obj < KP_MAX_MODELPART_OBJECTS; obj++)
+                if (left & BIT(obj))
+                    break;
+            skin = part->skinnum[obj];
+            show = 0;
+            for (j = obj; j < KP_MAX_MODELPART_OBJECTS; j++) {
+                if ((left & BIT(j)) && part->skinnum[j] == skin) {
+                    show |= BIT(j);
+                    left &= (byte)~BIT(j);
+                }
+            }
+            ent->skinnum = skin;
+            ent->hidden_parts = (byte)~show;
+            V_AddEntity(ent);
+        }
+    }
+
+    ent->hidden_parts = 0;
+    ent->model = saved;
+}
+
+static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
+{
+    int client = s1->skinnum & 0xff;
+    const clientinfo_t *ci;
+    int i;
+    qhandle_t models[3], skins[3];
+
+    if (client < 0 || client >= MAX_CLIENTS)
+        return;
+
+    ci = &cl.clientinfo[client];
+    if (!ci->kp_body && !ci->kp_head && !ci->kp_legs)
+        ci = &cl.baseclientinfo;
+
+    models[0] = ci->kp_legs;
+    skins[0] = ci->kp_legs_skin;
+    models[1] = ci->kp_body;
+    skins[1] = ci->kp_body_skin;
+    models[2] = ci->kp_head;
+    skins[2] = ci->kp_head_skin;
+
+    for (i = 0; i < 3; i++) {
+        if (!models[i])
+            continue;
+        ent->model = models[i];
+        ent->skin = skins[i];
+        ent->skinnum = 0;
+        ent->hidden_parts = 0;
+        V_AddEntity(ent);
+    }
+
+    ent->skin = 0;
+    ent->model = 0;
+}
+
 static void CL_AddPacketEntities(void)
 {
     entity_t                ent;
@@ -690,7 +797,20 @@ static void CL_AddPacketEntities(void)
             ent.model = 0;
         } else {
             // set skin
-            if (s1->modelindex == MODELINDEX_PLAYER) {
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+                ent.skinnum = 0;
+                ent.skin = 0;
+                ent.model = 0;
+                if (s1->modelindex > 0 && s1->modelindex < MODELINDEX_PLAYER) {
+                    ent.model = cl.model_draw[s1->modelindex];
+                    for (int part = 0; part < KP_MAX_MODEL_PARTS; part++) {
+                        if (s1->model_parts[part].modelindex == s1->modelindex) {
+                            ent.model = 0;
+                            break;
+                        }
+                    }
+                }
+            } else if (s1->modelindex == MODELINDEX_PLAYER) {
                 // use custom player skin
                 ent.skinnum = 0;
                 ci = &cl.clientinfo[s1->skinnum & 0xff];
@@ -796,8 +916,11 @@ static void CL_AddPacketEntities(void)
         }
 
         // if set to invisible, skip
-        if (!s1->modelindex)
+        if (!s1->modelindex) {
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                CL_AddKingpinModelParts(&ent, s1);
             goto skip;
+        }
 
         if (effects & EF_BFG) {
             ent.flags |= RF_TRANSLUCENT;
@@ -849,8 +972,17 @@ static void CL_AddPacketEntities(void)
 
         ent.scale = s1->scale;
 
+        // model 255 is a player. Head, body, and legs come from players/.
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN &&
+            s1->modelindex == MODELINDEX_PLAYER) {
+            CL_AddKingpinPlayer(&ent, s1);
+        }
+
         // add to refresh list
-        V_AddEntity(&ent);
+        if (ent.model)
+            V_AddEntity(&ent);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            CL_AddKingpinModelParts(&ent, s1);
 
         // color shells generate a separate entity for the main model
         if (effects & EF_COLOR_SHELL) {
@@ -919,7 +1051,8 @@ static void CL_AddPacketEntities(void)
                 ent.flags = RF_TRANSLUCENT;
             }
 
-            V_AddEntity(&ent);
+            if (ent.model)
+                V_AddEntity(&ent);
 
             //PGM - make sure these get reset.
             ent.flags = custom_flags;
@@ -928,12 +1061,14 @@ static void CL_AddPacketEntities(void)
 
         if (s1->modelindex3) {
             ent.model = cl.model_draw[s1->modelindex3];
-            V_AddEntity(&ent);
+            if (ent.model)
+                V_AddEntity(&ent);
         }
 
         if (s1->modelindex4) {
             ent.model = cl.model_draw[s1->modelindex4];
-            V_AddEntity(&ent);
+            if (ent.model)
+                V_AddEntity(&ent);
         }
 
         if (effects & EF_POWERSCREEN) {
@@ -1140,16 +1275,6 @@ static void CL_AddViewWeapon(void)
 
     memset(&gun, 0, sizeof(gun));
 
-    if (gun_model) {
-        gun.model = gun_model;  // development tool
-    } else {
-        gun.model = cl.model_draw[ps->gunindex & GUNINDEX_MASK];
-        gun.skinnum = ps->gunindex >> GUNINDEX_BITS;
-    }
-    if (!gun.model) {
-        return;
-    }
-
     // set up gun position
     for (i = 0; i < 3; i++) {
         gun.origin[i] = cl.refdef.vieworg[i] + ops->gunoffset[i] +
@@ -1189,6 +1314,60 @@ static void CL_AddViewWeapon(void)
     if (gun.alpha != 1.0f)
         gun.flags |= RF_TRANSLUCENT;
 
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        int drawn = 0;
+        for (int p = 0; p < KP_MAX_MODEL_PARTS; p++) {
+            const kp_model_part_t *part = &ps->gun_parts[p];
+            byte left;
+            qhandle_t model;
+
+            if (part->modelindex <= 0 || part->modelindex >= cl.csr.max_models)
+                continue;
+            model = cl.model_draw[part->modelindex];
+            if (!model)
+                continue;
+
+            gun.model = model;
+            gun.skin = 0;
+            left = (byte)~part->invisible_objects;
+            if (!left)
+                continue;
+
+            while (left) {
+                int obj, j;
+                byte skin, show;
+
+                for (obj = 0; obj < KP_MAX_MODELPART_OBJECTS; obj++)
+                    if (left & BIT(obj))
+                        break;
+                skin = part->skinnum[obj];
+                show = 0;
+                for (j = obj; j < KP_MAX_MODELPART_OBJECTS; j++) {
+                    if ((left & BIT(j)) && part->skinnum[j] == skin) {
+                        show |= BIT(j);
+                        left &= (byte)~BIT(j);
+                    }
+                }
+                gun.skinnum = skin;
+                gun.hidden_parts = (byte)~show;
+                V_AddEntity(&gun);
+                drawn++;
+            }
+        }
+        if (drawn > 0)
+            goto muzzle_flash;
+    }
+
+    if (gun_model) {
+        gun.model = gun_model;  // development tool
+    } else {
+        gun.model = cl.model_draw[ps->gunindex & GUNINDEX_MASK];
+        gun.skinnum = ps->gunindex >> GUNINDEX_BITS;
+    }
+    if (!gun.model) {
+        return;
+    }
+
     V_AddEntity(&gun);
 
     // add shell effect from player entity
@@ -1197,6 +1376,8 @@ static void CL_AddViewWeapon(void)
         gun.flags |= flags | RF_TRANSLUCENT;
         V_AddEntity(&gun);
     }
+
+muzzle_flash:
 
     // add muzzle flash
     if (!cl.weapon.muzzle.model)

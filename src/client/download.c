@@ -155,6 +155,8 @@ void CL_CleanupDownloads(void)
     cls.download.current = NULL;
     cls.download.percent = 0;
     cls.download.position = 0;
+    cls.download.size = 0;
+    cls.download.request_time = 0;
 
     if (cls.download.file) {
         FS_CloseFile(cls.download.file);
@@ -195,6 +197,30 @@ static bool start_udp_download(dlqueue_t *q)
     // a runt file won't be left
     memcpy(cls.download.temp, q->path, len);
     memcpy(cls.download.temp + len, ".tmp", 5);
+
+    // kpded2 rejects "download". Unpatched clients use download5, then nextdl2.
+    // Offset is in kilobytes. Start clean so a short temp file cannot overlap.
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        ret = FS_OpenFile(cls.download.temp, &f, FS_MODE_WRITE);
+        if (ret < 0) {
+            Com_EPrintf("[UDP] Couldn't open %s for writing: %s\n",
+                        cls.download.temp, Q_ErrorString(ret));
+            CL_FinishDownload(q);
+            return false;
+        }
+
+        cls.download.file = f;
+        cls.download.position = 0;
+        cls.download.size = 0;
+        if (++cls.download.id <= 0)
+            cls.download.id = 1;
+        Com_DPrintf("[UDP] Downloading %s\n", q->path);
+        CL_ClientCommand(va("download5 %s %d", q->path, cls.download.id));
+        cls.download.request_time = com_localTime;
+        q->state = DL_RUNNING;
+        cls.download.current = q;
+        return true;
+    }
 
     // check to see if we already have a tmp for this file, if so, try to resume
     // open the file if not opened yet
@@ -268,6 +294,7 @@ static void finish_udp_download(const char *msg)
     cls.download.current = NULL;
     cls.download.percent = 0;
     cls.download.position = 0;
+    cls.download.size = 0;
 
     if (cls.download.file) {
         FS_CloseFile(cls.download.file);
@@ -285,6 +312,10 @@ static void finish_udp_download(const char *msg)
                    q->path, msg, cls.download.pending,
                    cls.download.pending == 1 ? "" : "s");
     }
+
+    // A new pak is invisible until the base directory is scanned again.
+    if (msg && !strcmp(msg, "DONE") && !COM_CompareExtension(q->path, ".pak"))
+        CL_RestartFilesystem(true);
 
     // get another file if needed
     CL_RequestNextDownload();
@@ -304,6 +335,74 @@ static bool write_udp_download(const byte *data, int size)
     }
 
     return true;
+}
+
+void CL_HandlePushDownload(const byte *data, int size, int filesize, int id, int kb)
+{
+    dlqueue_t *q = cls.download.current;
+    int64_t offset;
+    int percent, ret;
+
+    if (!q)
+        return;
+
+    if (id != cls.download.id || kb < 0 || filesize < 0)
+        return;
+
+    offset = (int64_t)kb << 10;
+    cls.download.size = filesize;
+    if (offset != cls.download.position || offset + size > filesize) {
+        cls.download.request_time = com_localTime;
+        CL_ClientCommand(va("nextdl2 %d", (int)(cls.download.position >> 10)));
+        return;
+    }
+
+    if (size && !write_udp_download(data, size))
+        return;
+
+    cls.download.position += size;
+    percent = filesize ? (int)(cls.download.position * 100 / filesize) : 100;
+    if (percent / 10 != cls.download.percent / 10)
+        Com_Printf("[UDP] %s %d%%\n", q->path, percent);
+    cls.download.percent = percent;
+
+    if (cls.download.position < filesize) {
+        cls.download.request_time = com_localTime;
+        CL_ClientCommand(va("nextdl2 %d", (int)(cls.download.position >> 10)));
+        return;
+    }
+
+    FS_CloseFile(cls.download.file);
+    cls.download.file = 0;
+    ret = FS_RenameFile(cls.download.temp, q->path);
+    if (ret) {
+        Com_EPrintf("[UDP] Couldn't rename %s to %s: %s\n",
+                    cls.download.temp, q->path, Q_ErrorString(ret));
+        finish_udp_download(NULL);
+        return;
+    }
+
+    finish_udp_download("DONE");
+}
+
+void CL_DownloadTick(void)
+{
+    unsigned wait;
+
+    if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN || !cls.download.current)
+        return;
+
+    // The first block is reliable. Later blocks are not, so ask again
+    // if one does not arrive. Repeating download5 restarts the file.
+    wait = cls.download.size > 0 ? 500 : 2000;
+    if (com_localTime - cls.download.request_time < wait)
+        return;
+
+    cls.download.request_time = com_localTime;
+    if (cls.download.size > 0)
+        CL_ClientCommand(va("nextdl2 %d", (int)(cls.download.position >> 10)));
+    else
+        CL_ClientCommand(va("download5 %s %d", cls.download.current->path, cls.download.id));
 }
 
 #if USE_ZLIB
@@ -438,8 +537,8 @@ to prevent the server from uploading arbitrary files.
 bool CL_CheckDownloadExtension(const char *ext)
 {
     static const char allowed[][4] = {
-        "bsp", "dm2", "ent", "jpg", "loc", "md2", "md3", "ogg", "pcx", "png",
-        "sp2", "tga", "txt", "wal", "wav",
+        "bsp", "dm2", "ent", "jpg", "loc", "md2", "md3", "mdx", "ogg", "pak",
+        "pcx", "png", "sp2", "tga", "txt", "wal", "wav",
     };
 
     for (int i = 0; i < q_countof(allowed); i++)
@@ -469,7 +568,7 @@ static int check_file_len(const char *path, size_t len, dltype_t type)
         || !Q_ispath(buffer[0])
         || !Q_ispath(buffer[len - 1])
         || strstr(buffer, "..")
-        || !strchr(buffer, '/')) {
+        || (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && !strchr(buffer, '/'))) {
         // some of these checks are too conservative or even redundant
         // once we have normalized the path, however they have to stay for
         // compatibility reasons with older servers (some would even ban us
@@ -663,6 +762,103 @@ static bool downloads_pending(dltype_t type)
     return false;
 }
 
+static void queue_kingpin_file(const char *name, dltype_t type)
+{
+    int ret;
+
+    if (!name[0])
+        return;
+
+    ret = check_file(name, type);
+    if (ret && ret != Q_ERR(EEXIST))
+        Com_DPrintf("%s: %s: %s\n", __func__, name, Q_ErrorString(ret));
+}
+
+static void CL_RequestKingpinDownloads(void)
+{
+    int i, pass;
+    char fn[MAX_QPATH];
+
+    switch (precache_check) {
+    case PRECACHE_MODELS:
+        // Image slots are the server's download list during connect.
+        // Paks come last: a later non-pak request makes kpded2 reconnect.
+        for (pass = 0; pass < 2; pass++) {
+            for (i = 0; i < cl.csr.max_images; i++) {
+                const char *name = cl.configstrings[cl.csr.images + i];
+                bool pak;
+
+                if (!name[0])
+                    break;
+
+                pak = !COM_CompareExtension(name, ".pak");
+                if (pak != (pass == 1))
+                    continue;
+
+                queue_kingpin_file(name, DL_OTHER);
+            }
+        }
+
+        // maps/, models/, and sound/ are accepted even when they are not
+        // on that list. Files already in a local pak are skipped.
+        if (allow_download_maps->integer)
+            queue_kingpin_file(cl.configstrings[cl.csr.models + 1], DL_MAP);
+
+        if (allow_download_models->integer) {
+            for (i = 2; i < cl.csr.max_models; i++) {
+                const char *name = cl.configstrings[cl.csr.models + i];
+
+                if (!name[0])
+                    break;
+                if (name[0] == '*' || name[0] == '#')
+                    continue;
+                queue_kingpin_file(name, DL_MODEL);
+            }
+        }
+
+        if (allow_download_sounds->integer) {
+            for (i = 1; i < cl.csr.max_sounds; i++) {
+                const char *name = cl.configstrings[cl.csr.sounds + i];
+                size_t len;
+
+                if (!name[0])
+                    break;
+                if (name[0] == '*')
+                    continue;
+                if (name[0] == '#')
+                    len = Q_strlcpy(fn, name + 1, sizeof(fn));
+                else
+                    len = Q_concat(fn, sizeof(fn), "sound/", name);
+                if (len < sizeof(fn))
+                    queue_kingpin_file(fn, DL_OTHER);
+            }
+        }
+
+        precache_check = PRECACHE_OTHER;
+        // fall through
+
+    case PRECACHE_OTHER:
+        if (cls.download.pending) {
+            Com_DPrintf("%s: waiting for downloads...\n", __func__);
+            return;
+        }
+        precache_check = PRECACHE_MAP;
+        // fall through
+
+    case PRECACHE_MAP:
+        CL_RegisterBspModels();
+        precache_check = PRECACHE_FINAL;
+        // fall through
+
+    case PRECACHE_FINAL:
+        CL_Begin();
+        break;
+
+    default:
+        break;
+    }
+}
+
 /*
 =====================
 CL_RequestNextDownload
@@ -685,6 +881,13 @@ void CL_RequestNextDownload(void)
         }
 
         CL_Begin();
+        return;
+    }
+
+    // kpded2 sends its download list in the image slots, then accepts
+    // maps, models, and sounds that are still missing.
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        CL_RequestKingpinDownloads();
         return;
     }
 

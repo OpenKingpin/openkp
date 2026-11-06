@@ -22,4 +22,5 @@ uint16_t CRC_Block(const byte *start, size_t count);
 
 #if USE_CLIENT
 byte COM_BlockSequenceCRCByte(const byte *base, size_t length, int sequence);
+byte COM_BlockSequenceCheckByte(const byte *base, size_t length, int sequence, int challenge);
 #endif

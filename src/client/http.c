@@ -357,6 +357,7 @@ int HTTP_FetchFile(const char *url, void **data)
     curl_easy_setopt(curl, CURLOPT_PROXY, http_proxy());
     curl_easy_setopt(curl, CURLOPT_USERAGENT, com_version->string);
     curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS | 0L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, cl_http_blocking_timeout->integer | 0L);
 

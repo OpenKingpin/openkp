@@ -533,6 +533,8 @@ static void CL_ParseServerData(void)
                 protocol, cl.servercount, attractloop);
 
     cl.csr = cs_remap_old;
+    if (protocol == PROTOCOL_VERSION_KINGPIN)
+        cl.csr = cs_remap_kingpin;
 
     // check protocol
     if (cls.serverProtocol != protocol) {
@@ -688,6 +690,12 @@ static void CL_ParseServerData(void)
         cl.pmp.flyfriction = 4;
     } else {
         cls.protocolVersion = 0;
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            cl.esFlags |= MSG_ES_KINGPIN;
+            cl.psFlags |= MSG_PS_KINGPIN;
+            cl.pmp.kingpin = true;
+            cl.pmp.airaccelerate = true;
+        }
     }
 
     if (cl.csr.extended) {
@@ -751,9 +759,233 @@ static void CL_ReadPos(vec3_t pos)
     MSG_ReadPos(pos, cl.esFlags & MSG_ES_EXTENSIONS_2);
 }
 
+static void kp_read_pos_dir(void)
+{
+    CL_ReadPos(te.pos1);
+    MSG_ReadDir(te.dir);
+}
+
+// Kingpin temp-entity numbers are not Quake II's. Read the Kingpin body,
+// then store a Quake II type so the effect player still runs.
+static void CL_ParseKingpinTEnt(int type)
+{
+    switch (type) {
+    case 0:     // gunshot
+    case 1:     // gunshot visible
+    case 5:     // shotgun
+    case 10:    // metal sparks
+    case 11:    // sparks
+    case 14:    // screen sparks
+    case 15:    // shield sparks
+    case 16:    // bullet sparks
+    case 52:    // impact concussion
+        kp_read_pos_dir();
+        te.type = TE_GUNSHOT;
+        break;
+
+    case 2:     // blood: position, then a damage byte. Not a direction.
+        CL_ReadPos(te.pos1);
+        MSG_ReadByte();
+        VectorClear(te.dir);
+        te.type = TE_BLOOD;
+        break;
+
+    case 28:    // green blood
+        kp_read_pos_dir();
+        te.type = TE_BLOOD;
+        break;
+
+    case 3:     // blaster
+    case 29:    // blue hyperblaster
+        kp_read_pos_dir();
+        te.type = TE_BLASTER;
+        break;
+
+    case 4:     // railtrail, plus a direction Quake II does not write
+        CL_ReadPos(te.pos1);
+        CL_ReadPos(te.pos2);
+        MSG_ReadDir(te.dir);
+        te.type = TE_RAILTRAIL;
+        break;
+
+    case 7:     // explosion2
+    case 8:     // rocket explosion
+    case 9:     // grenade explosion
+    case 19:    // rocket explosion water
+    case 20:    // grenade explosion water
+    case 22:    // bfg explosion
+    case 23:    // bfg big explosion
+    case 24:    // boss teleport
+    case 30:    // plasma explosion
+    case 44:    // burn to a crisp
+        CL_ReadPos(te.pos1);
+        te.type = (type == 9 || type == 20) ? TE_GRENADE_EXPLOSION : TE_EXPLOSION1;
+        break;
+
+    case 12:    // splash
+        te.count = MSG_ReadByte();
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        te.color = MSG_ReadByte();
+        te.type = TE_SPLASH;
+        break;
+
+    case 13:    // bubble trail
+    case 25:    // bfg laser
+        CL_ReadPos(te.pos1);
+        CL_ReadPos(te.pos2);
+        te.type = (type == 25) ? TE_BFG_LASER : TE_BUBBLETRAIL;
+        break;
+
+    case 17:    // laser sparks
+    case 27:    // welding sparks
+    case 31:    // tunnel sparks
+        te.count = MSG_ReadByte();
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        te.color = MSG_ReadByte();
+        te.type = TE_LASER_SPARKS;
+        break;
+
+    case 18:    // parasite
+    case 21:    // medic cable
+        te.entity1 = MSG_ReadShort();
+        CL_ReadPos(te.pos1);
+        CL_ReadPos(te.pos2);
+        te.type = TE_PARASITE_ATTACK;
+        break;
+
+    case 26:    // grapple cable
+        te.entity1 = MSG_ReadShort();
+        CL_ReadPos(te.pos1);
+        CL_ReadPos(te.pos2);
+        CL_ReadPos(te.offset);
+        te.type = TE_GRAPPLE_CABLE;
+        break;
+
+    case 6:     // explosion1
+    case 47:    // explosion1b
+    case 49:    // explosion1c
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 34:    // fire go: position and one scale byte
+        CL_ReadPos(te.pos1);
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 32:    // fire
+    case 33:    // smoke
+    case 58:    // fire trail
+        CL_ReadPos(te.pos1);
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 37:    // snow: position and four shorts
+        CL_ReadPos(te.pos1);
+        MSG_ReadShort();
+        MSG_ReadShort();
+        MSG_ReadShort();
+        MSG_ReadShort();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 38:    // rain: position and five shorts
+        CL_ReadPos(te.pos1);
+        MSG_ReadShort();
+        MSG_ReadShort();
+        MSG_ReadShort();
+        MSG_ReadShort();
+        MSG_ReadShort();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 45:    // concussion
+    case 46:    // concussion water
+    case 56:    // concussion big
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        MSG_ReadByte();
+        te.type = TE_ROCKET_EXPLOSION;
+        break;
+
+    case 50:    // steam: position, direction, five parameter bytes
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 51:    // smoke2: two positions and four parameter bytes
+        CL_ReadPos(te.pos1);
+        CL_ReadPos(te.pos2);
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 53:    // art burn: position, short size, four color bytes
+        CL_ReadPos(te.pos1);
+        MSG_ReadShort();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 54:    // fog brush
+        CL_ReadPos(te.pos1);
+        CL_ReadPos(te.pos2);
+        te.type = TE_BUBBLETRAIL;
+        break;
+
+    case 43:    // surface sprite: type, width, height, position, pitch, yaw
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        CL_ReadPos(te.pos1);
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case 55:    // gibs: position, direction, count, three scale bytes
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        te.count = MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        MSG_ReadByte();
+        te.type = TE_BLOOD;
+        break;
+
+    default:
+        Com_Error(ERR_DROP, "%s: Kingpin temp entity %d", __func__, type);
+    }
+}
+
 static void CL_ParseTEntPacket(void)
 {
     te.type = MSG_ReadByte();
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        CL_ParseKingpinTEnt(te.type);
+        return;
+    }
 
     switch (te.type) {
     case TE_BLOOD:
@@ -1142,9 +1374,35 @@ static void CL_ParseInventory(void)
     }
 }
 
+static void CL_ParsePushDownload(void)
+{
+    int size, filesize, id, kb;
+
+    size = MSG_ReadShort();
+    if (size == -1) {
+        MSG_ReadByte();
+        if (cls.download.current)
+            CL_HandleDownload(NULL, size, 0, 0);
+        return;
+    }
+    if (size < 0) {
+        Com_Error(ERR_DROP, "%s: bad size: %d", __func__, size);
+    }
+
+    filesize = MSG_ReadLong();
+    id = MSG_ReadLong();
+    kb = MSG_ReadLong();
+    CL_HandlePushDownload(size ? MSG_ReadData(size) : NULL, size, filesize, id, kb);
+}
+
 static void CL_ParseDownload(int cmd)
 {
     int size, percent, decompressed_size;
+
+    if (cmd == svc_pushdownload) {
+        CL_ParsePushDownload();
+        return;
+    }
 
     if (!cls.download.temp[0]) {
         Com_Error(ERR_DROP, "%s: no download requested", __func__);
@@ -1362,7 +1620,16 @@ void CL_ParseServerMessage(void)
             CL_MuzzleFlash2();
             break;
 
+        case svc_muzzleflash3:
+            MSG_ReadShort();
+            MSG_ReadByte();
+            break;
+
+        case svc_hud:
+            break;
+
         case svc_download:
+        case svc_pushdownload:
             CL_ParseDownload(cmd);
             continue;
 
@@ -1517,6 +1784,14 @@ bool CL_SeekDemoMessage(void)
 
         case svc_muzzleflash2:
             CL_ParseMuzzleFlashPacket(0);
+            break;
+
+        case svc_muzzleflash3:
+            MSG_ReadShort();
+            MSG_ReadByte();
+            break;
+
+        case svc_hud:
             break;
 
         case svc_frame:

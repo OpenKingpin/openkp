@@ -1636,9 +1636,7 @@ int Cmd_ExecuteFile(const char *path, unsigned flags)
         goto finish;
     }
 
-    // FIXME: always insert into main command buffer,
-    // no matter where command came from?
-    buf = &cmd_buffer;
+    buf = cmd_current ? cmd_current : &cmd_buffer;
 
     // check for exec loop
     if (buf->aliasCount >= ALIAS_LOOP_COUNT) {

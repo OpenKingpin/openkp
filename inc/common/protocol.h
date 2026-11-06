@@ -25,6 +25,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define MAX_MSGLEN  0x8000      // max length of a message, 32 KiB
 
 #define PROTOCOL_VERSION_OLD            26
+#define PROTOCOL_VERSION_KINGPIN        32
 #define PROTOCOL_VERSION_DEFAULT        34
 #define PROTOCOL_VERSION_R1Q2           35
 #define PROTOCOL_VERSION_Q2PRO          36
@@ -122,15 +123,20 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 //
 // server to client
 //
+// Kingpin inserts muzzleflash3 and hud, then four ops after svc_frame.
+// Numbers match kpded2's KINGPIN svc_ops_e. The R1Q2/Q2PRO ops stay
+// past that range so they do not collide with the Kingpin wire.
 typedef enum {
     svc_bad,
 
     // these ops are known to the game dll
     svc_muzzleflash,
     svc_muzzleflash2,
+    svc_muzzleflash3,
     svc_temp_entity,
     svc_layout,
     svc_inventory,
+    svc_hud,
 
     // the rest are private to the client and server
     svc_nop,
@@ -149,14 +155,16 @@ typedef enum {
     svc_packetentities,         // [...]
     svc_deltapacketentities,    // [...]
     svc_frame,
+    svc_configstring_pointer,
+    svc_pushdownload,
+    svc_cpacket,                // patched clients only
+    svc_xdownload,              // patched clients only
 
-    // R1Q2 specific operations
+    // not on the Kingpin wire
     svc_zpacket,
     svc_zdownload,
-    svc_gamestate, // Q2PRO specific, means svc_playerupdate in R1Q2
+    svc_gamestate,
     svc_setting,
-
-    // Q2PRO specific operations
     svc_configstringstream,
     svc_baselinestream,
 
@@ -252,6 +260,16 @@ typedef enum {
 #define PS_WEAPONFRAME      BIT(13)
 #define PS_RDFLAGS          BIT(14)
 #define PS_MOREBITS         BIT(15)     // read one additional byte
+
+// Kingpin leaves bit 7 unused and shifts the remaining playerstate flags.
+#define KP_PS_VIEWOFFSET    BIT(8)
+#define KP_PS_VIEWANGLES    BIT(9)
+#define KP_PS_KICKANGLES    BIT(10)
+#define KP_PS_BLEND         BIT(11)
+#define KP_PS_FOV           BIT(12)
+#define KP_PS_WEAPONINDEX   BIT(13)
+#define KP_PS_WEAPONFRAME   BIT(14)
+#define KP_PS_RDFLAGS       BIT(15)
 
 #define PS_FOG              BIT(16)
 
@@ -370,6 +388,16 @@ typedef enum {
 #define U_SKIN16        BIT_ULL(25)
 #define U_SOUND         BIT_ULL(26)
 #define U_SOLID         BIT_ULL(27)
+
+// Kingpin reuses bits that Quake II spent on other fields.
+#define KP_U_ORIGINDELTA    BIT_ULL(5)
+#define KP_U_EVENT          BIT_ULL(13)
+#define KP_U_SOUND16        BIT_ULL(20)
+#define KP_U_PART3MODEL     BIT_ULL(21)
+#define KP_U_NUMPARTS       BIT_ULL(28)
+#define KP_U_MODELPARTS     BIT_ULL(29)
+#define KP_U_MODELLIGHT     BIT_ULL(30)
+#define KP_U_SCALE          BIT_ULL(31)
 #define U_MODEL16       BIT_ULL(28)
 #define U_MOREFX8       BIT_ULL(29)
 #define U_ALPHA         BIT_ULL(30)

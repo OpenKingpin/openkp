@@ -19,6 +19,8 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "shared/shared.h"
 #include "common/crc.h"
+#include "common/math.h"
+#include "common/mdfour.h"
 
 // this is a 16 bit, non-reflected CRC using the polynomial 0x1021
 // and the initial and final xor values shown below...  in other words, the
@@ -180,6 +182,45 @@ byte COM_BlockSequenceCRCByte(const byte *base, size_t length, int sequence)
     crc = (crc ^ x) & 0xff;
 
     return crc;
+}
+
+/*
+====================
+COM_BlockSequenceCheckByte
+
+Kingpin move checksum. The table is the vertex-normal bytes, and the
+challenge from the connect handshake is mixed in.
+====================
+*/
+byte COM_BlockSequenceCheckByte(const byte *base, size_t length, int sequence, int challenge)
+{
+    const byte *p;
+    byte chkb[60 + 8];
+
+    if (sequence < 0)
+        Com_Error(ERR_DROP, "%s: sequence < 0", __func__);
+
+    p = (const byte *)bytedirs + (((sequence / 3) % NUMVERTEXNORMALS) * 3 + (sequence % 3)) * 4;
+
+    if (length > 60)
+        length = 60;
+    memcpy(chkb, base, length);
+
+    chkb[length] = p[0] ^ (sequence & 0xff);
+    chkb[length + 1] = p[1];
+    chkb[length + 2] = p[2] ^ ((sequence >> 8) & 0xff);
+    chkb[length + 3] = p[3];
+
+    p = (const byte *)bytedirs + ((((sequence + challenge) / 3) % NUMVERTEXNORMALS) * 3 + ((sequence + challenge) % 3)) * 4;
+
+    chkb[length + 4] = p[3] ^ (sequence & 0xff);
+    chkb[length + 5] = p[2] ^ (challenge & 0xff);
+    chkb[length + 6] = p[1] ^ ((sequence >> 8) & 0xff);
+    chkb[length + 7] = p[0] ^ ((challenge >> 7) & 0xff);
+
+    length += 8;
+
+    return Com_BlockChecksum(chkb, length) & 0xff;
 }
 
 #endif // USE_CLIENT

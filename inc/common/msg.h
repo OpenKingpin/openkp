@@ -85,6 +85,7 @@ typedef enum {
     MSG_PS_MOREBITS             = BIT(8),   // read more playerstate bits
     MSG_PS_FORCE                = BIT(9),   // send even if unchanged (MVD stream only)
     MSG_PS_REMOVE               = BIT(10),  // player is removed (MVD stream only)
+    MSG_PS_KINGPIN              = BIT(11),  // Kingpin playerstate layout
 } msgPsFlags_t;
 
 typedef enum {
@@ -98,6 +99,7 @@ typedef enum {
     MSG_ES_EXTENSIONS   = BIT(7),   // enable protocol extensions
     MSG_ES_EXTENSIONS_2 = BIT(8),   // enable more protocol extensions
     MSG_ES_REMOVE       = BIT(9),   // entity is removed (MVD stream only)
+    MSG_ES_KINGPIN      = BIT(10),  // Kingpin entity delta layout
 } msgEsFlags_t;
 
 extern sizebuf_t    msg_write;

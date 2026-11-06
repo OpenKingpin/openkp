@@ -522,7 +522,8 @@ static void PM_AirMove(void)
 
 // PGM  -- fix for negative trigger_gravity fields
 //      pml.velocity[2] = 0;
-        if (pm->s.gravity > 0)
+        // Kingpin keeps applying gravity on the ground. Quake II clears it.
+        if (pm->s.gravity > 0 && !pmp->kingpin)
             pml.velocity[2] = 0;
         else
             pml.velocity[2] -= pm->s.gravity * pml.frametime;
@@ -757,7 +758,7 @@ static void PM_FlyMove(void)
     vec3_t      wishdir;
     float       wishspeed;
 
-    pm->viewheight = 22;
+    pm->viewheight = pmp->kingpin ? 36 : 22;
 
     // friction
     speed = VectorLength(pml.velocity);
@@ -786,6 +787,11 @@ static void PM_FlyMove(void)
     VectorNormalize(pml.forward);
     VectorNormalize(pml.right);
 
+    if (pmp->kingpin && pm->s.pm_type == PM_SPECTATOR) {
+        fmove *= 3;
+        smove *= 3;
+    }
+
     for (i = 0; i < 3; i++)
         wishvel[i] = pml.forward[i] * fmove + pml.right[i] * smove;
     wishvel[2] += pm->cmd.upmove;
@@ -796,9 +802,15 @@ static void PM_FlyMove(void)
     //
     // clamp to server defined max speed
     //
-    if (wishspeed > pmp->maxspeed) {
-        VectorScale(wishvel, pmp->maxspeed / wishspeed, wishvel);
-        wishspeed = pmp->maxspeed;
+    {
+        float maxspeed = pmp->maxspeed;
+
+        if (pmp->kingpin && pm->s.pm_type == PM_SPECTATOR)
+            maxspeed *= 3;
+        if (wishspeed > maxspeed) {
+            VectorScale(wishvel, maxspeed / wishspeed, wishvel);
+            wishspeed = maxspeed;
+        }
     }
 
     currentspeed = DotProduct(pml.velocity, wishdir);
@@ -855,7 +867,7 @@ static void PM_CheckDuck(void)
         // stand up if possible
         if (pm->s.pm_flags & PMF_DUCKED) {
             // try to stand up
-            pm->maxs[2] = 32;
+            pm->maxs[2] = pmp->kingpin ? 48 : 32;
             trace = PMOVE_TRACE(pml.origin, pm->mins, pm->maxs, pml.origin);
             if (!trace.allsolid)
                 pm->s.pm_flags &= ~PMF_DUCKED;
@@ -863,8 +875,16 @@ static void PM_CheckDuck(void)
     }
 
     if (pm->s.pm_flags & PMF_DUCKED) {
-        pm->maxs[2] = 4;
-        pm->viewheight = -2;
+        if (pmp->kingpin) {
+            pm->maxs[2] = 24;
+            pm->viewheight = 18;
+        } else {
+            pm->maxs[2] = 4;
+            pm->viewheight = -2;
+        }
+    } else if (pmp->kingpin) {
+        pm->maxs[2] = 48;
+        pm->viewheight = 36;
     } else {
         pm->maxs[2] = 32;
         pm->viewheight = 22;
@@ -1022,10 +1042,35 @@ Pmove
 Can be called by either the server or the client
 ================
 */
+static pmtype_t PM_KingpinType(int type)
+{
+    switch (type) {
+    case 0:
+        return PM_NORMAL;
+    case 6:
+        return PM_SPECTATOR;
+    case 7:
+        return PM_DEAD;
+    case 8:
+        return PM_GIB;
+    case 9:
+        return PM_FREEZE;
+    default:
+        return PM_NORMAL;
+    }
+}
+
 void PMOVE_FUNC(PMOVE_TYPE *pmove, const pmoveParams_t *params)
 {
+    pmtype_t wire_type;
+
     pm = pmove;
     pmp = params;
+
+    // Kingpin inserts vehicle types before spectator, so the later values move.
+    wire_type = pm->s.pm_type;
+    if (pmp->kingpin)
+        pm->s.pm_type = PM_KingpinType(wire_type);
 
     // clear results
     pm->numtouch = 0;
@@ -1051,6 +1096,8 @@ void PMOVE_FUNC(PMOVE_TYPE *pmove, const pmoveParams_t *params)
         pml.frametime = pmp->speedmult * pm->cmd.msec * 0.001f;
         PM_FlyMove();
         PM_SnapPosition();
+        if (pmp->kingpin)
+            pm->s.pm_type = wire_type;
         return;
     }
 
@@ -1062,8 +1109,11 @@ void PMOVE_FUNC(PMOVE_TYPE *pmove, const pmoveParams_t *params)
         pm->cmd.upmove = 0;
     }
 
-    if (pm->s.pm_type == PM_FREEZE)
+    if (pm->s.pm_type == PM_FREEZE) {
+        if (pmp->kingpin)
+            pm->s.pm_type = wire_type;
         return;     // no movement at all
+    }
 
     // set mins, maxs, and viewheight
     PM_CheckDuck();
@@ -1138,4 +1188,7 @@ void PMOVE_FUNC(PMOVE_TYPE *pmove, const pmoveParams_t *params)
     else
         pm->s.pm_flags &= ~PMF_ON_LADDER;
 #endif
+
+    if (pmp->kingpin)
+        pm->s.pm_type = wire_type;
 }

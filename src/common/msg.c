@@ -2127,6 +2127,127 @@ MSG_ParseDeltaEntity
 Can go from either a baseline or a previous packet_entity
 ==================
 */
+static int MSG_ReadRenderfx(uint64_t bits)
+{
+    if ((bits & (U_RENDERFX8 | U_RENDERFX16)) == (U_RENDERFX8 | U_RENDERFX16))
+        return MSG_ReadLong();
+    if (bits & U_RENDERFX8)
+        return MSG_ReadByte();
+    if (bits & U_RENDERFX16)
+        return MSG_ReadWord();
+    return 0;
+}
+
+static void MSG_ReadModelParts(kp_model_part_t *parts)
+{
+    int changed = MSG_ReadByte();
+
+    for (int i = 0; i < KP_MAX_MODEL_PARTS; i++) {
+        int flags, skins;
+
+        if (!(changed & BIT(i)))
+            continue;
+
+        flags = MSG_ReadByte();
+        if (flags & 1)
+            parts[i].modelindex = MSG_ReadByte();
+        if (flags & 2)
+            parts[i].invisible_objects = MSG_ReadByte();
+        if (!(flags & 4))
+            continue;
+
+        skins = MSG_ReadByte();
+        for (int j = 0; j < KP_MAX_MODELPART_OBJECTS; j++) {
+            if (skins & BIT(j))
+                parts[i].skinnum[j] = MSG_ReadByte();
+        }
+    }
+}
+
+static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
+                                         entity_state_extension_t *ext,
+                                         uint64_t bits)
+{
+    Q_assert(ext);
+
+    if (bits & U_MODEL)
+        to->modelindex = MSG_ReadByte();
+
+    if (bits & KP_U_NUMPARTS)
+        ext->num_parts = MSG_ReadByte();
+    if (bits & KP_U_MODELPARTS)
+        MSG_ReadModelParts(ext->model_parts);
+    if (bits & KP_U_PART3MODEL)
+        ext->model_parts[3].modelindex = MSG_ReadByte();
+
+    if (bits & U_FRAME8)
+        to->frame = MSG_ReadByte();
+    else if (bits & U_FRAME16)
+        to->frame = MSG_ReadWord();
+
+    if ((bits & U_SKIN32) == U_SKIN32)
+        to->skinnum = MSG_ReadLong();
+    else if (bits & U_SKIN8)
+        to->skinnum = MSG_ReadByte();
+    else if (bits & U_SKIN16)
+        to->skinnum = MSG_ReadWord();
+
+    if ((bits & U_EFFECTS32) == U_EFFECTS32)
+        to->effects = MSG_ReadLong();
+    else if (bits & U_EFFECTS8)
+        to->effects = MSG_ReadByte();
+    else if (bits & U_EFFECTS16)
+        to->effects = MSG_ReadWord();
+
+    if (bits & (U_RENDERFX8 | U_RENDERFX16)) {
+        to->renderfx = MSG_ReadRenderfx(bits);
+        ext->renderfx2 = MSG_ReadRenderfx(bits);
+    }
+
+    if (bits & KP_U_ORIGINDELTA) {
+        if (bits & U_ORIGIN1)
+            to->origin[0] += (MSG_ReadByte() - 128) * 0.25f;
+        if (bits & U_ORIGIN2)
+            to->origin[1] += (MSG_ReadByte() - 128) * 0.25f;
+        if (bits & U_ORIGIN3)
+            to->origin[2] += (MSG_ReadByte() - 128) * 0.25f;
+    } else {
+        if (bits & U_ORIGIN1)
+            to->origin[0] = MSG_ReadCoord();
+        if (bits & U_ORIGIN2)
+            to->origin[1] = MSG_ReadCoord();
+        if (bits & U_ORIGIN3)
+            to->origin[2] = MSG_ReadCoord();
+    }
+
+    if (bits & U_ANGLE1)
+        to->angles[0] = MSG_ReadAngle();
+    if (bits & U_ANGLE2)
+        to->angles[1] = MSG_ReadAngle();
+    if (bits & U_ANGLE3)
+        to->angles[2] = MSG_ReadAngle();
+
+    if (bits & U_OLDORIGIN)
+        MSG_ReadPos(to->old_origin, false);
+
+    if (bits & U_SOUND)
+        to->sound = MSG_ReadByte();
+    else if (bits & KP_U_SOUND16)
+        to->sound = MSG_ReadWord();
+
+    if (bits & KP_U_EVENT)
+        to->event = MSG_ReadByte();
+
+    if (bits & U_SOLID)
+        to->solid = MSG_ReadWord();
+
+    if (bits & KP_U_SCALE)
+        ext->scale = MSG_ReadByte() / 127.0f - 1.0f;
+
+    if (bits & KP_U_MODELLIGHT)
+        ext->model_light = MSG_ReadLong();
+}
+
 void MSG_ParseDeltaEntity(entity_state_t            *to,
                           entity_state_extension_t  *ext,
                           int                       number,
@@ -2138,6 +2259,12 @@ void MSG_ParseDeltaEntity(entity_state_t            *to,
 
     to->number = number;
     to->event = 0;
+
+    if (flags & MSG_ES_KINGPIN) {
+        if (bits)
+            MSG_ParseDeltaEntity_Kingpin(to, ext, bits);
+        return;
+    }
 
     if (!bits) {
         return;
@@ -2353,6 +2480,8 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
                                        int                  flags,
                                        msgPsFlags_t         psflags)
 {
+    int kpflags;
+
     Q_assert(to);
 
     // clear to old value before delta parsing
@@ -2360,6 +2489,28 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
         memset(to, 0, sizeof(*to));
     } else if (to != from) {
         memcpy(to, from, sizeof(*to));
+    }
+
+    // Kingpin leaves bit 7 unused and shifts every later flag up by one.
+    if (psflags & MSG_PS_KINGPIN) {
+        kpflags = flags;
+        flags = kpflags & 0x7f;
+        if (kpflags & KP_PS_VIEWOFFSET)
+            flags |= PS_VIEWOFFSET;
+        if (kpflags & KP_PS_VIEWANGLES)
+            flags |= PS_VIEWANGLES;
+        if (kpflags & KP_PS_KICKANGLES)
+            flags |= PS_KICKANGLES;
+        if (kpflags & KP_PS_BLEND)
+            flags |= PS_BLEND;
+        if (kpflags & KP_PS_FOV)
+            flags |= PS_FOV;
+        if (kpflags & KP_PS_WEAPONINDEX)
+            flags |= PS_WEAPONINDEX;
+        if (kpflags & KP_PS_WEAPONFRAME)
+            flags |= PS_WEAPONFRAME;
+        if (kpflags & KP_PS_RDFLAGS)
+            flags |= PS_RDFLAGS;
     }
 
     //
@@ -2421,7 +2572,10 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
     if (flags & PS_VIEWOFFSET) {
         to->viewoffset[0] = MSG_ReadChar() * 0.25f;
         to->viewoffset[1] = MSG_ReadChar() * 0.25f;
-        to->viewoffset[2] = MSG_ReadChar() * 0.25f;
+        if (psflags & MSG_PS_KINGPIN)
+            to->viewoffset[2] = MSG_ReadAngle16();
+        else
+            to->viewoffset[2] = MSG_ReadChar() * 0.25f;
     }
 
     if (flags & PS_VIEWANGLES) {
@@ -2441,6 +2595,10 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
             to->gunindex = MSG_ReadWord();
         else
             to->gunindex = MSG_ReadByte();
+#if USE_PROTOCOL_EXTENSIONS
+        if (psflags & MSG_PS_KINGPIN)
+            MSG_ReadModelParts(to->gun_parts);
+#endif
     }
 
     if (flags & PS_WEAPONFRAME) {
@@ -2893,9 +3051,11 @@ const char *MSG_ServerCommandString(int cmd)
         S(bad)
         S(muzzleflash)
         S(muzzleflash2)
+        S(muzzleflash3)
         S(temp_entity)
         S(layout)
         S(inventory)
+        S(hud)
         S(nop)
         S(disconnect)
         S(reconnect)
@@ -2911,6 +3071,10 @@ const char *MSG_ServerCommandString(int cmd)
         S(packetentities)
         S(deltapacketentities)
         S(frame)
+        S(configstring_pointer)
+        S(pushdownload)
+        S(cpacket)
+        S(xdownload)
         S(zpacket)
         S(zdownload)
         S(gamestate)

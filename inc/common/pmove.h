@@ -31,6 +31,7 @@ Common between server and client so prediction matches
 typedef struct {
     bool        qwmode;
     bool        airaccelerate;
+    bool        kingpin;
     bool        strafehack;
     bool        flyhack;
     bool        waterhack;
