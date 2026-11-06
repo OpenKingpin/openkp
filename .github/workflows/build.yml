@@ -2,14 +2,16 @@ name: build
 
 on:
   push:
-    branches: [master, ci]
+    branches: [main, master, ci]
   pull_request:
-    branches: [master]
+    branches: [main, master]
 
 env:
   MESON_ARGS: >-
     --auto-features=enabled
     --fatal-meson-warnings
+    -Dbase-game=main
+    -Dsave-games=false
     -Danticheat-server=true
     -Davcodec=disabled
     -Dclient-gtv=true
@@ -67,7 +69,14 @@ jobs:
         run: |
           meson setup --cross-file=.ci/${{ matrix.arch }}-w64-mingw32.txt \
           ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_WIN }} builddir
-          meson compile -C builddir
+          meson compile -C builddir openkp
+
+      - name: Upload Windows Binary Artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x86_64'
+        with:
+          name: openkp-windows-x64
+          path: builddir/openkp.exe
 
   msvc:
     runs-on: windows-latest
@@ -115,9 +124,16 @@ jobs:
       - name: Build
         run: |
           meson setup ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_LINUX }} builddir
-          meson compile -C builddir
+          meson compile -C builddir openkp
         env:
           CC: ${{ matrix.cc }}
+
+      - name: Upload Linux Binary Artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.cc == 'gcc'
+        with:
+          name: openkp-linux-x86_64
+          path: builddir/openkp
 
   macos:
     runs-on: macos-latest

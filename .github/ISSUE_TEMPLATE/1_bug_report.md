@@ -1,57 +1,48 @@
 ---
 name: 'Report a bug'
-about: 'Create a bug report'
+about: 'Report an issue or crash with OpenKP'
 title: ''
-labels: ''
+labels: 'bug'
 assignees: ''
 
 ---
 
 ### Before reporting bugs
 
-Make sure the bug is reproducible with latest Q2PRO version. If you compile
-Q2PRO yourself, update to the latest version from git master. If you are using
-prebuilt Windows binaries, update to the latest nightly build.
+Please make sure the issue is reproducible with the latest `openkp` build.
 
-### Important information
+### Environment & Setup
 
 Provide the following information:
-- Q2PRO version
-- OS version
-- GPU driver and version
+- **OpenKP version / commit hash:** (e.g. from `openkp --version` or console)
+- **Operating System:** (e.g. Windows 10/11 64-bit, Ubuntu 24.04, Arch)
+- **GPU and Driver:**
+- **Server connected to:** (IP address, port, and mod e.g. vanilla KP / Monkey Mod)
+- **Map name:** (e.g. `kptd1`, `team_flub`, etc.)
 
-For Linux:
-- Linux distribution and version
-- Window manager version
+### Describe the Bug
 
-### Reproduction steps
+A clear and concise description of what happened.
 
-Steps to reproduce the behavior.
+### Steps to Reproduce
 
-### Expected behavior
+1. Launch `openkp`
+2. Connect to server `...`
+3. Perform action `...`
+4. Observe issue
+
+### Expected Behavior
 
 A clear and concise description of what you expected to happen.
 
-### Actual behavior
+### Screenshots or Video
 
-A clear and concise description of what actually happened.
+If applicable, add screenshots or video to help explain the problem.
 
-### Screenshots
+### Log File or Crash Dump
 
-If reporting graphics glitches, provide screenshot or video.
-
-### Log file
-
-Provide a link to the log file created by launching `q2pro +set developer 1
-+set logfile 1`.
-
-### Crash reports
-
-If Q2PRO crashes, provide a crash report (Windows) or a backtrace (Linux). On
-Linux, backtrace can be created by launching Q2PRO with `gdb q2pro --args
-[...]` and typing `bt` after the crash.
-
-### Compilation issues
-
-If reporting a building / compilation issue, provide `meson setup` command
-line and full console output.
+Provide console output or log file created by launching:
+```bash
+openkp +set developer 1 +set logfile 1
+```
+On Windows, provide the crash dialog details if applicable. On Linux, provide the `gdb` backtrace if a crash occurred.

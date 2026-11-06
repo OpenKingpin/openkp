@@ -13,11 +13,11 @@
 #endif
 
 #ifdef _WIN64
-#define VER_FILEDESCRIPTION_STR     "Q2PRO client (64-bit)"
-#define VER_ORIGINALFILENAME_STR    "q2pro64.exe"
+#define VER_FILEDESCRIPTION_STR     "OpenKP client (64-bit)"
+#define VER_ORIGINALFILENAME_STR    "openkp64.exe"
 #else
-#define VER_FILEDESCRIPTION_STR     "Q2PRO client"
-#define VER_ORIGINALFILENAME_STR    "q2pro.exe"
+#define VER_FILEDESCRIPTION_STR     "OpenKP client"
+#define VER_ORIGINALFILENAME_STR    "openkp.exe"
 #endif
 
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
@@ -36,13 +36,13 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "Comments", "https://github.com/skullernet/q2pro"
-            VALUE "CompanyName", "skuller.net"
+            VALUE "CompanyName", "OpenKP"
             VALUE "FileDescription", VER_FILEDESCRIPTION_STR
             VALUE "OriginalFilename", VER_ORIGINALFILENAME_STR
             VALUE "FileVersion", VERSION
-            VALUE "InternalName", "q2pro"
+            VALUE "InternalName", "openkp"
             VALUE "LegalCopyright", "Copyright © 2023 skuller.net"
-            VALUE "ProductName", "Q2PRO"
+            VALUE "ProductName", "OpenKP"
             VALUE "ProductVersion", VERSION
         END
     END
@@ -54,5 +54,5 @@ END
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_DEFAULT
 
-100 ICON "q2pro.ico"
+100 ICON "openkp.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "q2pro.exe.manifest"

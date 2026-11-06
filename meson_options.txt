@@ -51,7 +51,7 @@ option('game-new-api',
 
 option('homedir',
   type: 'string',
-  value: '~/.q2pro',
+  value: '~/.openkp',
   description: 'Default value for "homedir" console variable')
 
 option('icmp-errors',
@@ -153,12 +153,12 @@ option('variable-fps',
 
 option('vid-geometry',
   type: 'string',
-  value: '640x480',
+  value: '1920x1080',
   description: 'Default window geometry')
 
 option('vid-modelist',
   type: 'string',
-  value: '640x480 800x600 1024x768',
+  value: 'desktop 1280x720 1600x900 1920x1080 2560x1440 3440x1440 3840x2160',
   description: 'Default video mode list')
 
 option('wayland',

@@ -70,6 +70,7 @@ client_src = [
 
 ui_src = [
   'src/client/ui/demos.c',
+  'src/client/ui/kpmenu.c',
   'src/client/ui/menu.c',
   'src/client/ui/playerconfig.c',
   'src/client/ui/playermodels.c',
@@ -422,7 +423,7 @@ if get_option('game-abi-hack').require(x86 and cc.get_id() == 'gcc' and cc.has_a
   engine_args += '-mstackrealign'
 endif
 
-executable('q2pro', common_src, client_src, refresh_src,
+executable('openkp', common_src, client_src, refresh_src,
   dependencies:          common_deps + client_deps,
   include_directories:   'inc',
   gnu_symbol_visibility: 'hidden',

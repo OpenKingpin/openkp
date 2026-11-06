@@ -2,3 +2,19 @@
 !/subprojects/packagefiles/
 /tags
 /TAGS
+
+# OpenKP
+.env
+.env.*
+!.env.example
+/builddir/
+/build/
+/build_cmake/
+build*/
+.cache/
+.vs/
+.idea/
+*.user
+*~
+*.swp
+.DS_Store

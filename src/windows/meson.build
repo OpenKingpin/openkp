@@ -4,6 +4,8 @@ common_src += files('system.c', 'hunk.c')
 client_src += files('client.c', 'wgl.c')
 
 common_deps += cc.find_library('ws2_32')
+common_deps += cc.find_library('shell32')
+common_deps += cc.find_library('ole32')
 client_deps += cc.find_library('opengl32')
 
 rc_args = ['-DHAVE_CONFIG_H']
@@ -11,7 +13,7 @@ rc_inc = meson.project_build_root()
 
 client_src += windows.compile_resources('res/q2pro.rc',
   args:                rc_args,
-  depend_files:        ['res/q2pro.ico', 'res/q2pro.exe.manifest'],
+  depend_files:        ['res/openkp.ico', 'res/q2pro.exe.manifest'],
   include_directories: rc_inc,
 )
 
