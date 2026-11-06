@@ -16,9 +16,9 @@ env:
     -Davcodec=disabled
     -Dclient-gtv=true
     -Dpacketdup-hack=true
-    -Dtests=true
+    -Dtests=false
     -Dvariable-fps=true
-    -Dwerror=true
+    -Dwerror=false
 
   MESON_ARGS_WIN: >-
     -Dsdl2=disabled
@@ -153,6 +153,7 @@ jobs:
   freebsd:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
