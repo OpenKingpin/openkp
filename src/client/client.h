@@ -945,6 +945,8 @@ void CL_MuzzleFlash2(void);
 void CL_MuzzleFlash3(void);
 void CL_AddScreenShake(float intensity, int duration);
 void CL_RocketTrailKP(centity_t *cent, const vec3_t end);
+void CL_GrenadeTrailKP(centity_t *cent, const vec3_t end);
+void CL_ExplosionKP(const vec3_t org, int type);
 void CL_RocketExplosionKP(const vec3_t org);
 void CL_BulletImpactKP(const vec3_t pos, const vec3_t dir, int type);
 void CL_BloodSpurtKP(const vec3_t pos, const vec3_t dir);

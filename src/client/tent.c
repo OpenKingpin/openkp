@@ -1563,6 +1563,10 @@ void CL_ParseTEnt(void)
 
     case TE_GRENADE_EXPLOSION:
     case TE_GRENADE_EXPLOSION_WATER:
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ExplosionKP(te.pos1, te.type);
+            break;
+        }
         ex = CL_PlainExplosion();
         ex->frames = 19;
         ex->baseframe = 30;
@@ -1583,6 +1587,10 @@ void CL_ParseTEnt(void)
 
     case TE_EXPLOSION2:
     case TE_EXPLOSION2_NL:
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ExplosionKP(te.pos1, te.type);
+            break;
+        }
         ex = CL_PlainExplosion();
         ex->frames = 19;
         ex->baseframe = 30;
@@ -1598,7 +1606,7 @@ void CL_ParseTEnt(void)
     case TE_CONCUSSION_EXPLOSION_WATER:
     case TE_CONCUSSION_EXPLOSION_BIG:
         if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
-            CL_RocketExplosionKP(te.pos1);
+            CL_ExplosionKP(te.pos1, te.type);
             break;
         }
         ex = CL_PlainExplosion();
@@ -1620,6 +1628,10 @@ void CL_ParseTEnt(void)
     case TE_EXPLOSION1:
     case TE_EXPLOSION1_NL:
     case TE_PLASMA_EXPLOSION:
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ExplosionKP(te.pos1, te.type);
+            break;
+        }
         ex = CL_PlainExplosion();
         if (te.type == TE_EXPLOSION1_NL)
             ex->light = 0;
@@ -1628,11 +1640,19 @@ void CL_ParseTEnt(void)
         break;
 
     case TE_EXPLOSION1_NP:
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ExplosionKP(te.pos1, te.type);
+            break;
+        }
         CL_PlainExplosion();
         S_StartSound(te.pos1, 0, 0, cl_sfx_rockexp, 1, ATTN_NORM, 0);
         break;
 
     case TE_EXPLOSION1_BIG:
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_ExplosionKP(te.pos1, te.type);
+            break;
+        }
         ex = CL_PlainExplosion();
         ex->ent.model = cl_mod_explo4;
         ex->ent.scale = 2.0f;

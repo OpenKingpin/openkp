@@ -2012,59 +2012,168 @@ void CL_RocketTrailKP(centity_t *cent, const vec3_t end)
 
 /*
 ===============
-CL_RocketExplosionKP
+CL_GrenadeTrailKP
 
-Bazooka rocket / concussion explosion: fireball core, rising black smoke,
-radial sparks, debris shrapnel, screen shake, and dynamic light.
+Kingpin grenade trail: wispy tumbling smoke puffs trailing the launched projectile.
 ===============
 */
-void CL_RocketExplosionKP(const vec3_t org)
+void CL_GrenadeTrailKP(centity_t *cent, const vec3_t end)
+{
+    vec3_t move, vec;
+    int count, i, j;
+    cparticle_t *p;
+    const float dec = 4.0f;
+
+    VectorSubtract(end, cent->lerp_origin, vec);
+    count = (int)(VectorNormalize(vec) / dec);
+    if (!count)
+        return;
+
+    VectorCopy(cent->lerp_origin, move);
+    VectorScale(vec, dec, vec);
+
+    for (i = 0; i < count; i++) {
+        if ((Q_rand() & 3) == 0) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            uint8_t c = 140 + (Q_rand() & 63);
+            p->rgba.u32 = MakeColor(c, c, c, 140);
+            p->scale = 0.9f + frand() * 0.7f;
+            p->alpha = 0.6f;
+            p->alphavel = -1.0f / (0.5f + frand() * 0.3f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = move[j] + crand() * 1.5f;
+                p->vel[j] = crand() * 2.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = 18.0f; // gentle rising smoke
+        }
+        VectorAdd(move, vec, move);
+    }
+
+    VectorCopy(move, cent->lerp_origin);
+}
+
+/*
+===============
+CL_ExplosionKP
+
+Kingpin explosion FX for bazooka rockets, grenades, and water blasts:
+fireball core, rising dark smoke, radial sparks, debris shrapnel, screen shake, and dynamic light.
+===============
+*/
+void CL_ExplosionKP(const vec3_t org, int type)
 {
     cdlight_t *dl;
     cparticle_t *p;
     vec3_t diff;
     float dist;
     int i, j;
-
-    // Dynamic light
-    dl = CL_AllocDlight(0);
-    VectorCopy(org, dl->origin);
-    dl->radius = 350.0f;
-    VectorSet(dl->color, 1.0f, 0.6f, 0.2f);
-    dl->die = cl.time + 300;
+    bool is_water = (type == TE_ROCKET_EXPLOSION_WATER ||
+                     type == TE_GRENADE_EXPLOSION_WATER ||
+                     type == TE_CONCUSSION_EXPLOSION_WATER);
+    bool is_grenade = (type == TE_GRENADE_EXPLOSION ||
+                       type == TE_CONCUSSION_EXPLOSION_BIG ||
+                       type == TE_EXPLOSION2 ||
+                       type == TE_EXPLOSION2_NL);
 
     // Screen shake based on distance to player view
     VectorSubtract(org, cl.refdef.vieworg, diff);
     dist = VectorLength(diff);
     if (dist < 800.0f) {
         float factor = 1.0f - (dist / 800.0f);
-        CL_AddScreenShake(factor * 9.0f, 400);
+        CL_AddScreenShake(factor * (is_water ? 5.0f : (is_grenade ? 7.0f : 9.5f)), is_water ? 250 : 400);
     }
 
+    if (is_water) {
+        // Water explosion
+        dl = CL_AllocDlight(0);
+        VectorCopy(org, dl->origin);
+        dl->radius = 280.0f;
+        VectorSet(dl->color, 0.4f, 0.7f, 1.0f);
+        dl->die = cl.time + 250;
+
+        S_StartSound(org, 0, 0, S_RegisterSound("weapons/xpld_wat.wav"), 1, ATTN_NORM, 0);
+
+        // Rising water spout / spray
+        for (i = 0; i < 45; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(200, 225, 245, 210);
+            p->scale = 1.5f + frand() * 1.5f;
+            p->alpha = 0.9f;
+            p->alphavel = -1.0f / (0.6f + frand() * 0.4f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = org[j] + crand() * 10.0f;
+                p->vel[j] = crand() * 40.0f;
+            }
+            p->vel[2] = 80.0f + frand() * 120.0f;
+            VectorClear(p->accel);
+            p->accel[2] = -PARTICLE_GRAVITY * 1.5f;
+        }
+
+        // Bubbles / foam
+        for (i = 0; i < 30; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(240, 245, 255, 180);
+            p->scale = 0.8f + frand() * 0.6f;
+            p->alpha = 0.8f;
+            p->alphavel = -1.0f / (0.8f + frand() * 0.5f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = org[j] + crand() * 15.0f;
+                p->vel[j] = crand() * 20.0f;
+            }
+            p->vel[2] = 30.0f + frand() * 40.0f;
+            VectorClear(p->accel);
+            p->accel[2] = 10.0f;
+        }
+        return;
+    }
+
+    // Dynamic light
+    dl = CL_AllocDlight(0);
+    VectorCopy(org, dl->origin);
+    dl->radius = is_grenade ? 280.0f : 360.0f;
+    VectorSet(dl->color, 1.0f, 0.6f, 0.2f);
+    dl->die = cl.time + (is_grenade ? 250 : 320);
+
     // Play explosion sound
-    S_StartSound(org, 0, 0, S_RegisterSound("world/explosion1.wav"), 1, ATTN_NORM, 0);
+    const char *sound_path = is_grenade ? "world/explosion2.wav" : "world/explosion1.wav";
+    S_StartSound(org, 0, 0, S_RegisterSound(sound_path), 1, ATTN_NORM, 0);
 
     // 1. Central fireball core
-    for (i = 0; i < 25; i++) {
+    int fire_count = is_grenade ? 18 : 28;
+    for (i = 0; i < fire_count; i++) {
         p = CL_AllocParticle();
         if (!p)
             break;
         p->time = cl.time;
         p->color = -1;
         p->rgba.u32 = MakeColor(255, 150 + (Q_rand() & 80), 20, 255);
-        p->scale = 2.5f + frand() * 2.0f;
+        p->scale = 2.4f + frand() * (is_grenade ? 1.4f : 2.2f);
         p->alpha = 1.0f;
         p->alphavel = -1.0f / (0.35f + frand() * 0.25f);
         for (j = 0; j < 3; j++) {
             p->org[j] = org[j] + crand() * 6.0f;
-            p->vel[j] = crand() * 70.0f;
+            p->vel[j] = crand() * (is_grenade ? 55.0f : 75.0f);
         }
         VectorClear(p->accel);
         p->accel[2] = 10.0f;
     }
 
     // 2. Rising dark smoke cloud
-    for (i = 0; i < 35; i++) {
+    int smoke_count = is_grenade ? 24 : 36;
+    for (i = 0; i < smoke_count; i++) {
         p = CL_AllocParticle();
         if (!p)
             break;
@@ -2085,7 +2194,8 @@ void CL_RocketExplosionKP(const vec3_t org)
     }
 
     // 3. High-speed radial sparks
-    for (i = 0; i < 40; i++) {
+    int spark_count = is_grenade ? 30 : 45;
+    for (i = 0; i < spark_count; i++) {
         p = CL_AllocParticle();
         if (!p)
             break;
@@ -2097,21 +2207,22 @@ void CL_RocketExplosionKP(const vec3_t org)
         p->alphavel = -1.0f / (0.45f + frand() * 0.35f);
         for (j = 0; j < 3; j++) {
             p->org[j] = org[j] + crand() * 4.0f;
-            p->vel[j] = crand() * 190.0f;
+            p->vel[j] = crand() * (is_grenade ? 150.0f : 200.0f);
         }
         VectorClear(p->accel);
         p->accel[2] = -PARTICLE_GRAVITY * 1.5f;
     }
 
     // 4. Shrapnel / debris chunks
-    for (i = 0; i < 15; i++) {
+    int debris_count = is_grenade ? 18 : 15;
+    for (i = 0; i < debris_count; i++) {
         p = CL_AllocParticle();
         if (!p)
             break;
         p->time = cl.time;
         p->color = -1;
         p->rgba.u32 = MakeColor(70, 65, 60, 255);
-        p->scale = 1.6f + frand() * 0.8f;
+        p->scale = 1.5f + frand() * 0.8f;
         p->alpha = 1.0f;
         p->alphavel = -1.0f / (0.8f + frand() * 0.4f);
         for (j = 0; j < 3; j++) {
@@ -2122,6 +2233,11 @@ void CL_RocketExplosionKP(const vec3_t org)
         VectorClear(p->accel);
         p->accel[2] = -PARTICLE_GRAVITY * 2.0f;
     }
+}
+
+void CL_RocketExplosionKP(const vec3_t org)
+{
+    CL_ExplosionKP(org, TE_ROCKET_EXPLOSION);
 }
 
 /*

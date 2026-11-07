@@ -656,8 +656,8 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
             continue;
         ent->model = models[i];
         ent->skin = skins[i];
-        ent->skinnum = 0;
-        ent->hidden_parts = 0;
+        ent->skinnum = s1->model_parts[i].skinnum[0];
+        ent->hidden_parts = s1->model_parts[i].invisible_objects;
         V_AddEntity(ent);
     }
 
@@ -1235,7 +1235,10 @@ static void CL_AddPacketEntities(void)
             has_trail = true;
         } else if (effects & EF_GRENADE) {
             if (!(cl_disable_particles->integer & NOPART_GRENADE_TRAIL)) {
-                CL_DiminishingTrail(cent, ent.origin, DT_GRENADE);
+                if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                    CL_GrenadeTrailKP(cent, ent.origin);
+                else
+                    CL_DiminishingTrail(cent, ent.origin, DT_GRENADE);
                 has_trail = true;
             }
         } else if (effects & EF_FLIES) {
