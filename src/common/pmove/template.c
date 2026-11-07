@@ -622,7 +622,7 @@ static void PM_CategorizePosition(void)
     pm->watertype = 0;
 
     sample2 = pm->viewheight - pm->mins[2];
-    sample1 = sample2 / 2;
+    sample1 = pmp->kingpin ? (sample2 * 0.6f) : (sample2 / 2);
 
     point[2] = pml.origin[2] + pm->mins[2] + 1;
     cont = pm->pointcontents(point);
@@ -736,12 +736,12 @@ static void PM_CheckSpecialMovement(void)
         return;
 
     VectorMA(pml.origin, 30, flatforward, spot);
-    spot[2] += 4;
+    spot[2] += pmp->kingpin ? 10 : 4;
     cont = pm->pointcontents(spot);
     if (!(cont & CONTENTS_SOLID))
         return;
 
-    spot[2] += 16;
+    spot[2] += pmp->kingpin ? 22 : 16;
     cont = pm->pointcontents(spot);
     if (cont)
         return;
@@ -869,6 +869,11 @@ static void PM_CheckDuck(void)
     pm->mins[2] = -24;
 
     if (pm->s.pm_type == PM_DEAD) {
+        if (pmp->kingpin) {
+            pm->maxs[2] = -4;
+            pm->viewheight = -8;
+            return;
+        }
         pm->s.pm_flags |= PMF_DUCKED;
     } else if (pm->cmd.upmove < 0 && (pm->s.pm_flags & PMF_ON_GROUND)) {
         // duck

@@ -218,6 +218,12 @@ qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const ch
             Q_snprintf(path, sizeof(path), "%s/%s_%s.pcx", folder, part, code);
             if (FS_FileExists(path))
                 return R_RegisterSkin(path);
+            Q_snprintf(path, sizeof(path), "%s/%s.tga", folder, code);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
+            Q_snprintf(path, sizeof(path), "%s/%s.pcx", folder, code);
+            if (FS_FileExists(path))
+                return R_RegisterSkin(path);
         }
 
         if (model && model[0]) {
@@ -231,6 +237,45 @@ qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const ch
     }
 
     return 0;
+}
+
+static bool CL_ParseSkinFolderText(const char *model_name, const char *skin_folder,
+                                   char *out_head, char *out_body, char *out_legs, size_t maxlen)
+{
+    char filename[MAX_QPATH];
+    void *buffer = NULL;
+    ssize_t len;
+    char *p, *line, *saveptr;
+    bool found_h = false, found_b = false, found_l = false;
+
+    Q_snprintf(filename, sizeof(filename), "players/%s/%s/skinfolder.txt", model_name, skin_folder);
+    len = FS_LoadFile(filename, &buffer);
+    if (len <= 0 || !buffer) {
+        Q_snprintf(filename, sizeof(filename), "%s/skinfolder.txt", skin_folder);
+        len = FS_LoadFile(filename, &buffer);
+        if (len <= 0 || !buffer)
+            return false;
+    }
+
+    p = (char *)buffer;
+    line = strtok_r(p, "\r\n", &saveptr);
+    while (line) {
+        while (*line == ' ' || *line == '\t') line++;
+        if (!Q_strncasecmp(line, "head:", 5)) {
+            Q_strlcpy(out_head, COM_TrimSpace(line + 5), maxlen);
+            found_h = true;
+        } else if (!Q_strncasecmp(line, "body:", 5)) {
+            Q_strlcpy(out_body, COM_TrimSpace(line + 5), maxlen);
+            found_b = true;
+        } else if (!Q_strncasecmp(line, "legs:", 5)) {
+            Q_strlcpy(out_legs, COM_TrimSpace(line + 5), maxlen);
+            found_l = true;
+        }
+        line = strtok_r(NULL, "\r\n", &saveptr);
+    }
+
+    FS_FreeFile(buffer);
+    return (found_h && found_b && found_l);
 }
 
 static void CL_LoadKingpinClientinfo(clientinfo_t *ci, const char *s)
@@ -270,6 +315,16 @@ static void CL_LoadKingpinClientinfo(clientinfo_t *ci, const char *s)
     CL_KingpinToken(&cursor, head_code, sizeof(head_code));
     CL_KingpinToken(&cursor, body_code, sizeof(body_code));
     CL_KingpinToken(&cursor, legs_code, sizeof(legs_code));
+
+    if (head_code[0] && !body_code[0]) {
+        char sf_head[MAX_QPATH] = {0}, sf_body[MAX_QPATH] = {0}, sf_legs[MAX_QPATH] = {0};
+        if (CL_ParseSkinFolderText(ci->model_name, head_code, sf_head, sf_body, sf_legs, sizeof(sf_head))) {
+            Q_strlcpy(head_code, sf_head, sizeof(head_code));
+            Q_strlcpy(body_code, sf_body, sizeof(body_code));
+            Q_strlcpy(legs_code, sf_legs, sizeof(legs_code));
+        }
+    }
+
     Q_snprintf(ci->skin_name, sizeof(ci->skin_name), "%s %s %s", head_code, body_code, legs_code);
 
     if (!COM_IsPath(ci->model_name))

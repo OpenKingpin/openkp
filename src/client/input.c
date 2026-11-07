@@ -757,8 +757,11 @@ void CL_FinalizeCmd(void)
 //
     if (in_attack.state & 3)
         cl.cmd.buttons |= BUTTON_ATTACK;
-    if (in_use.state & 3)
+    if (in_use.state & 3) {
         cl.cmd.buttons |= BUTTON_USE;
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            cl.cmd.buttons |= BUTTON_ACTIVATE;
+    }
 
     if (cls.key_dest == KEY_GAME && Key_AnyKeyDown()) {
         cl.cmd.buttons |= BUTTON_ANY;
