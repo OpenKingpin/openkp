@@ -846,6 +846,32 @@ COLLISION DETECTION
 #define SURF_WNDW33             BIT(14)
 #define SURF_WNDW66             BIT(15)
 
+// Kingpin surface flags for material and footstep identification
+#define SURF_WATER              BIT(19)     // 0x00080000
+#define SURF_CONCRETE           BIT(20)     // 0x00100000
+#define SURF_FABRIC             BIT(21)     // 0x00200000
+#define SURF_GRAVEL             BIT(22)     // 0x00400000
+#define SURF_METAL              BIT(23)     // 0x00800000
+#define SURF_METAL_L            BIT(24)     // 0x01000000
+#define SURF_SNOW               BIT(25)     // 0x02000000
+#define SURF_TILE               BIT(26)     // 0x04000000
+#define SURF_WOOD               BIT(27)     // 0x08000000
+#define SURF_STEPMASK           (SURF_WATER | SURF_CONCRETE | SURF_FABRIC | SURF_GRAVEL | \
+                                 SURF_METAL | SURF_METAL_L | SURF_SNOW | SURF_TILE | SURF_WOOD)
+
+typedef enum {
+    KP_SURF_PAVEMENT = 0,
+    KP_SURF_RUG,
+    KP_SURF_GRAVEL,
+    KP_SURF_METAL_HEAVY,
+    KP_SURF_METAL_LIGHT,
+    KP_SURF_TIN,
+    KP_SURF_MARBLE,
+    KP_SURF_WOOD,
+    KP_SURF_WATER,
+    KP_SURF_COUNT
+} kp_surface_type_t;
+
 //KEX
 #define SURF_N64_UV             BIT(28)
 #define SURF_N64_SCROLL_X       BIT(29)
@@ -1027,6 +1053,7 @@ typedef struct {
 
     struct edict_s  *groundentity;
     cplane_t        groundplane;
+    csurface_t      *groundsurface;
     int             watertype;
     int             waterlevel;
 
@@ -1518,6 +1545,34 @@ typedef enum {
     EV_LADDER_STEP,
 // KEX
 } entity_event_t;
+
+// Kingpin entity events (protocol 32)
+typedef enum {
+    EV_KP_NONE = 0,
+    EV_KP_ITEM_RESPAWN,
+    EV_KP_FOOTSTEP0,
+    EV_KP_FOOTSTEP1,
+    EV_KP_FOOTSTEP2,
+    EV_KP_FOOTSTEP3,
+    EV_KP_FOOTSTEP4,
+    EV_KP_FOOTSTEP5,
+    EV_KP_FOOTSTEP6,
+    EV_KP_FOOTSTEP7,
+    EV_KP_FOOTSTEP8,
+    EV_KP_FALLSHORT0,
+    EV_KP_FALLSHORT1,
+    EV_KP_FALLSHORT2,
+    EV_KP_FALLSHORT3,
+    EV_KP_FALLSHORT4,
+    EV_KP_FALLSHORT5,
+    EV_KP_FALLSHORT6,
+    EV_KP_FALLSHORT7,
+    EV_KP_FALLSHORT8,
+    EV_KP_FALL,
+    EV_KP_FALLFAR,
+    EV_KP_PLAYER_TELEPORT,
+    EV_KP_OTHER_TELEPORT,
+} kp_entity_event_t;
 
 // entity_state_t is the information conveyed from the server
 // in an update message about entities that the client will

@@ -428,6 +428,26 @@ static sfx_t *S_RegisterSexedSound(int entnum, const char *base)
     if (!*model)
         model = "male";
 
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        bool is_female = (Q_strcasestr(model, "female") || Q_strcasestr(model, "chick") || Q_strcasestr(model, "bitch"));
+        const char *gender = is_female ? "female" : "male";
+
+        if (Q_concat(buffer, MAX_QPATH, "sound/actors/player/", gender, "/", base + 1) >= MAX_QPATH
+            && Q_concat(buffer, MAX_QPATH, "sound/actors/player/male/", base + 1) >= MAX_QPATH)
+            return NULL;
+
+        sfx = S_FindName(buffer, FS_NormalizePath(buffer));
+
+        if (sfx && !sfx->truename && !s_registering && !S_LoadSound(sfx)) {
+            if (Q_concat(buffer, MAX_QPATH, "sound/actors/player/male/", base + 1) < MAX_QPATH) {
+                FS_NormalizePath(buffer);
+                sfx->error = Q_ERR_SUCCESS;
+                sfx->truename = S_CopyString(buffer);
+            }
+        }
+        return sfx;
+    }
+
     // see if we already know of the model specific sound
     if (Q_concat(buffer, MAX_QPATH, "players/", model, "/", base + 1) >= MAX_QPATH
         && Q_concat(buffer, MAX_QPATH, "players/", "male", "/", base + 1) >= MAX_QPATH)
@@ -721,6 +741,16 @@ void S_ParseStartSound(void)
 
     if (!handle)
         return;
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && cl_predict->integer) {
+        if (snd.entity == cl.clientNum + 1 && snd.channel == CHAN_VOICE) {
+            sfx_t *sfx = S_SfxForHandle(handle);
+            if (sfx && strstr(sfx->name, "jump")) {
+                if (cls.realtime - cl.predicted_jump_time < 500)
+                    return; // already played predicted jump sound
+            }
+        }
+    }
 
 #if USE_DEBUG
     if (developer->integer && !(snd.flags & SND_POS))

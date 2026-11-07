@@ -163,6 +163,124 @@ static int CL_PointContents(const vec3_t point)
 }
 
 /*
+==================
+CL_PredictAudioKingpin
+==================
+*/
+static void CL_PredictAudioKingpin(const pmove_t *pm, qboolean was_on_ground, qboolean was_ladder,
+                                   float pre_z_vel, const vec3_t old_origin)
+{
+    vec3_t cur_origin;
+    VectorScale(pm->s.origin, 0.125f, cur_origin);
+
+    // 1. Landing sound
+    if (!was_on_ground && (pm->s.pm_flags & PMF_ON_GROUND) && pre_z_vel < -140.0f) {
+        if (pre_z_vel >= -600.0f) { // Higher falls trigger EV_KP_FALL / EV_KP_FALLFAR server damage screams
+            int surf_type = CL_SurfaceToKingpinStep(pm->groundsurface, 0, pm->waterlevel);
+            if (surf_type == KP_SURF_PAVEMENT && !pm->groundsurface)
+                surf_type = CL_TraceSurfaceFootstep(cur_origin, pm->mins, pm->maxs);
+            CL_PlayKingpinLand(cl.clientNum + 1, surf_type, 1.0f, ATTN_NORM);
+        }
+    }
+
+    // 2. Jumping sound
+    if (was_on_ground && !(pm->s.pm_flags & PMF_ON_GROUND) && pm->cmd.upmove > 10 && (pm->s.velocity[2] * 0.125f) > 150.0f) {
+        CL_PlayKingpinJump(cl.clientNum + 1);
+        cl.predicted_jump_time = cls.realtime;
+    }
+
+    // 3. Ladder footsteps
+    if (pm->s.pm_flags & PMF_ON_LADDER) {
+        if (cl_footsteps->integer) {
+            vec3_t delta;
+            VectorSubtract(cur_origin, old_origin, delta);
+            float ldist = VectorLength(delta);
+            if (ldist > 0.1f && ldist < 50.0f) {
+                cl.predicted_ladder_dist += ldist;
+                if (cl.predicted_ladder_dist >= 32.0f) {
+                    cl.predicted_ladder_dist = 0.0f;
+                    CL_PlayKingpinFootstep(cl.clientNum + 1, KP_SURF_METAL_LIGHT, 0.5f, ATTN_NORM);
+                }
+            }
+        }
+        cl.predicted_step_dist = 0.0f;
+    } else {
+        cl.predicted_ladder_dist = 0.0f;
+
+        // 4. Ground footsteps
+        if (pm->s.pm_type == PM_NORMAL && (pm->s.pm_flags & PMF_ON_GROUND)) {
+            if (cl_footsteps->integer) {
+                float dx = cur_origin[0] - old_origin[0];
+                float dy = cur_origin[1] - old_origin[1];
+                float dist = sqrtf(dx * dx + dy * dy);
+                if (dist > 0.0f && dist < 100.0f) {
+                    cl.predicted_step_dist += dist;
+                    float step_threshold = (pm->s.pm_flags & PMF_DUCKED) ? 36.0f : 60.0f;
+                    if (cl.predicted_step_dist >= step_threshold) {
+                        cl.predicted_step_dist = 0.0f;
+                        int surf_type = CL_SurfaceToKingpinStep(pm->groundsurface, 0, pm->waterlevel);
+                        if (surf_type == KP_SURF_PAVEMENT && !pm->groundsurface)
+                            surf_type = CL_TraceSurfaceFootstep(cur_origin, pm->mins, pm->maxs);
+                        CL_PlayKingpinFootstep(cl.clientNum + 1, surf_type, 0.5f, ATTN_NORM);
+                    }
+                }
+            }
+        } else {
+            cl.predicted_step_dist = 0.0f;
+        }
+    }
+}
+
+/*
+==================
+CL_PredictWeaponAudioKingpin
+==================
+*/
+static void CL_PredictWeaponAudioKingpin(void)
+{
+    // 1. Weapon draw / switch cocking sound
+    int current_gun_model = 0;
+    if (cl.frame.ps.gun_parts[0].modelindex > 0 && cl.frame.ps.gun_parts[0].modelindex < cl.csr.max_models) {
+        current_gun_model = cl.frame.ps.gun_parts[0].modelindex;
+    }
+
+    if (cl.predicted_gun_model == 0) {
+        cl.predicted_gun_model = current_gun_model;
+    } else if (current_gun_model != 0 && current_gun_model != cl.predicted_gun_model) {
+        cl.predicted_gun_model = current_gun_model;
+        const char *mname = cl.configstrings[cl.csr.models + current_gun_model];
+        if (mname && *mname) {
+            qhandle_t cock_sfx = 0;
+            if (Q_strcasestr(mname, "shotgun"))
+                cock_sfx = cl_kp_shotgload;
+            else if (Q_strcasestr(mname, "tomgun") || Q_strcasestr(mname, "mach"))
+                cock_sfx = cl_kp_machgcock;
+            else if (Q_strcasestr(mname, "hmg"))
+                cock_sfx = cl_kp_hmgcock;
+            else if (Q_strcasestr(mname, "colt") || Q_strcasestr(mname, "pistol"))
+                cock_sfx = cl_kp_pistol_clip;
+            else if (Q_strcasestr(mname, "rocket"))
+                cock_sfx = cl_kp_rocket_reload;
+            else if (Q_strcasestr(mname, "grenade"))
+                cock_sfx = cl_kp_grenade_reload;
+
+            if (cock_sfx)
+                S_StartSound(NULL, cl.clientNum + 1, CHAN_WEAPON, cock_sfx, 1.0f, ATTN_NORM, 0);
+        }
+    }
+
+    // 2. Empty weapon click on attack button edge
+    int attack_now = (cl.cmd.buttons & BUTTON_ATTACK);
+    if (attack_now && !(cl.predicted_attack_button & BUTTON_ATTACK)) {
+        if (cl.frame.ps.stats[STAT_AMMO] <= 0 && cl.frame.ps.stats[STAT_AMMO_ICON] > 0) {
+            if (cl_kp_noammo)
+                S_StartSound(NULL, cl.clientNum + 1, CHAN_WEAPON, cl_kp_noammo, 1.0f, ATTN_NORM, 0);
+        }
+    }
+    cl.predicted_attack_button = cl.cmd.buttons;
+}
+
+/*
 =================
 CL_PredictMovement
 
@@ -234,12 +352,28 @@ void CL_PredictMovement(void)
 
     // run frames
     while (++ack <= current) {
+        qboolean was_on_ground = (pm.s.pm_flags & PMF_ON_GROUND) != 0;
+        qboolean was_ladder = (pm.s.pm_flags & PMF_ON_LADDER) != 0;
+        float pre_z_vel = pm.s.velocity[2] * 0.125f;
+        vec3_t old_origin;
+        VectorScale(pm.s.origin, 0.125f, old_origin);
+
         pm.cmd = cl.cmds[ack & CMD_MASK];
         PmoveNew(&pm, &cl.pmp);
         pm.snapinitial = qfalse;
 
         // save for debug checking
         VectorCopy(pm.s.origin, cl.predicted_origins[ack & CMD_MASK]);
+
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            if (cl.predicted_sound_cmd == 0 || ack < cl.predicted_sound_cmd || ack - cl.predicted_sound_cmd > CMD_BACKUP)
+                cl.predicted_sound_cmd = ack - 1;
+
+            if (ack > cl.predicted_sound_cmd) {
+                cl.predicted_sound_cmd = ack;
+                CL_PredictAudioKingpin(&pm, was_on_ground, was_ladder, pre_z_vel, old_origin);
+            }
+        }
     }
 
     // run pending cmd
@@ -281,4 +415,8 @@ void CL_PredictMovement(void)
     VectorScale(pm.s.origin, 0.125f, cl.predicted_origin);
     VectorScale(pm.s.velocity, 0.125f, cl.predicted_velocity);
     VectorCopy(pm.viewangles, cl.predicted_angles);
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        CL_PredictWeaponAudioKingpin();
+    }
 }

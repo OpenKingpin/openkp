@@ -238,6 +238,138 @@ static void CL_RegisterFootsteps(void)
     }
 }
 
+static const char *const kp_step_dirs[KP_SURF_COUNT] = {
+    "actors/player/step pavement",
+    "actors/player/step rug",
+    "actors/player/step gravel",
+    "actors/player/step metal heavy",
+    "actors/player/step metal light",
+    "actors/player/step tin",
+    "actors/player/step marble",
+    "actors/player/step wood",
+    "actors/player/step water"
+};
+
+qhandle_t cl_kp_steps[KP_SURF_COUNT][4];
+qhandle_t cl_kp_lands[KP_SURF_COUNT];
+qhandle_t cl_kp_jumps[3];
+qhandle_t cl_kp_falls[2];
+qhandle_t cl_kp_noammo;
+qhandle_t cl_kp_machgcock;
+qhandle_t cl_kp_hmgcock;
+qhandle_t cl_kp_shotgload;
+qhandle_t cl_kp_pistol_clip;
+qhandle_t cl_kp_rocket_reload;
+qhandle_t cl_kp_grenade_reload;
+
+int CL_SurfaceToKingpinStep(const csurface_t *surf, int contents, int waterlevel)
+{
+    if (waterlevel == 1 || (contents & MASK_WATER))
+        return KP_SURF_WATER;
+
+    if (!surf)
+        return KP_SURF_PAVEMENT;
+
+    int flags = surf->flags;
+    if (flags & SURF_WATER)
+        return KP_SURF_WATER;
+    if (flags & SURF_WOOD)
+        return KP_SURF_WOOD;
+    if (flags & SURF_TILE)
+        return KP_SURF_MARBLE;
+    if (flags & SURF_SNOW)
+        return KP_SURF_TIN;
+    if (flags & SURF_METAL_L)
+        return KP_SURF_METAL_LIGHT;
+    if (flags & SURF_METAL)
+        return KP_SURF_METAL_HEAVY;
+    if (flags & SURF_GRAVEL)
+        return KP_SURF_GRAVEL;
+    if (flags & SURF_FABRIC)
+        return KP_SURF_RUG;
+    if (flags & SURF_CONCRETE)
+        return KP_SURF_PAVEMENT;
+
+    // Check texture name as fallback if flags are not set or generic
+    if (surf->name[0]) {
+        if (Q_strcasestr(surf->name, "wood"))
+            return KP_SURF_WOOD;
+        if (Q_strcasestr(surf->name, "tile") || Q_strcasestr(surf->name, "mrb") || Q_strcasestr(surf->name, "marble"))
+            return KP_SURF_MARBLE;
+        if (Q_strcasestr(surf->name, "metal_l") || Q_strcasestr(surf->name, "grate") || Q_strcasestr(surf->name, "ladder"))
+            return KP_SURF_METAL_LIGHT;
+        if (Q_strcasestr(surf->name, "metal") || Q_strcasestr(surf->name, "iron") || Q_strcasestr(surf->name, "steel"))
+            return KP_SURF_METAL_HEAVY;
+        if (Q_strcasestr(surf->name, "tin") || Q_strcasestr(surf->name, "vent") || Q_strcasestr(surf->name, "duct"))
+            return KP_SURF_TIN;
+        if (Q_strcasestr(surf->name, "gravel") || Q_strcasestr(surf->name, "dirt") || Q_strcasestr(surf->name, "earth") || Q_strcasestr(surf->name, "rubble"))
+            return KP_SURF_GRAVEL;
+        if (Q_strcasestr(surf->name, "rug") || Q_strcasestr(surf->name, "carpet") || Q_strcasestr(surf->name, "fabric") || Q_strcasestr(surf->name, "cloth"))
+            return KP_SURF_RUG;
+    }
+
+    return KP_SURF_PAVEMENT;
+}
+
+int CL_TraceSurfaceFootstep(const vec3_t origin, const vec3_t mins, const vec3_t maxs)
+{
+    vec3_t start, end;
+    vec3_t trace_mins, trace_maxs;
+    trace_t tr;
+
+    trace_mins[0] = mins ? mins[0] : -16;
+    trace_mins[1] = mins ? mins[1] : -16;
+    trace_mins[2] = 0;
+
+    trace_maxs[0] = maxs ? maxs[0] : 16;
+    trace_maxs[1] = maxs ? maxs[1] : 16;
+    trace_maxs[2] = 0;
+
+    VectorCopy(origin, start);
+    start[2] += 1.0f;
+
+    VectorCopy(start, end);
+    end[2] -= (mins ? -mins[2] + 16.0f : 32.0f);
+
+    CL_Trace(&tr, start, end, trace_mins, trace_maxs, MASK_SOLID | MASK_WATER);
+    if (tr.fraction == 1.0f)
+        return KP_SURF_PAVEMENT;
+
+    return CL_SurfaceToKingpinStep(tr.surface, tr.contents, 0);
+}
+
+void CL_PlayKingpinFootstep(int entnum, int surf_type, float volume, float attenuation)
+{
+    if (surf_type < 0 || surf_type >= KP_SURF_COUNT)
+        surf_type = KP_SURF_PAVEMENT;
+
+    int r = Q_rand_uniform(4);
+    qhandle_t sfx = cl_kp_steps[surf_type][r];
+    if (sfx) {
+        S_StartSound(NULL, entnum, CHAN_FOOTSTEP, sfx, volume, attenuation, 0);
+    }
+}
+
+void CL_PlayKingpinLand(int entnum, int surf_type, float volume, float attenuation)
+{
+    if (surf_type < 0 || surf_type >= KP_SURF_COUNT)
+        surf_type = KP_SURF_PAVEMENT;
+
+    qhandle_t sfx = cl_kp_lands[surf_type];
+    if (sfx) {
+        S_StartSound(NULL, entnum, CHAN_BODY, sfx, volume, attenuation, 0);
+    }
+}
+
+void CL_PlayKingpinJump(int entnum)
+{
+    int r = Q_rand_uniform(3);
+    qhandle_t sfx = cl_kp_jumps[r];
+    if (sfx) {
+        S_StartSound(NULL, entnum, CHAN_VOICE, sfx, 1.0f, ATTN_NORM, 0);
+    }
+}
+
 /*
 =================
 CL_RegisterTEntSounds
@@ -245,6 +377,32 @@ CL_RegisterTEntSounds
 */
 void CL_RegisterTEntSounds(void)
 {
+    int s, i;
+    char name[MAX_QPATH];
+
+    for (s = 0; s < KP_SURF_COUNT; s++) {
+        for (i = 0; i < 4; i++) {
+            Q_snprintf(name, sizeof(name), "%s/step%d.wav", kp_step_dirs[s], i + 1);
+            cl_kp_steps[s][i] = S_RegisterSound(name);
+        }
+        Q_snprintf(name, sizeof(name), "%s/land1.wav", kp_step_dirs[s]);
+        cl_kp_lands[s] = S_RegisterSound(name);
+    }
+
+    cl_kp_jumps[0] = S_RegisterSound("*jump1.wav");
+    cl_kp_jumps[1] = S_RegisterSound("*jump2.wav");
+    cl_kp_jumps[2] = S_RegisterSound("*jump3.wav");
+
+    cl_kp_falls[0] = S_RegisterSound("*fall1.wav");
+    cl_kp_falls[1] = S_RegisterSound("*fall2.wav");
+
+    cl_kp_noammo = S_RegisterSound("weapons/noammo.wav");
+    cl_kp_machgcock = S_RegisterSound("weapons/machinegun/machgcock.wav");
+    cl_kp_hmgcock = S_RegisterSound("weapons/hmg/hmgcock.wav");
+    cl_kp_shotgload = S_RegisterSound("weapons/shotgun/shotgload.wav");
+    cl_kp_pistol_clip = S_RegisterSound("weapons/pistol/clip_in.wav");
+    cl_kp_rocket_reload = S_RegisterSound("weapons/rocket_launcher/reload.wav");
+    cl_kp_grenade_reload = S_RegisterSound("weapons/grenade_launcher/reload.wav");
     cl_sfx_ric1 = S_RegisterSound("world/ric1.wav");
     cl_sfx_ric2 = S_RegisterSound("world/ric2.wav");
     cl_sfx_ric3 = S_RegisterSound("world/ric3.wav");
