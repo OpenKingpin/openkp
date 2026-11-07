@@ -1323,6 +1323,48 @@ enum {
     STAT_SPECTATOR,
 };
 
+// Kingpin player_state->stats[] indexes (protocol 32)
+#define STAT_KP_CASH_PICKUP         0
+#define STAT_KP_HEALTH              1
+#define STAT_KP_AMMO_ICON           2
+#define STAT_KP_AMMO                3
+#define STAT_KP_ARMOR1              4   // head armor
+#define STAT_KP_ARMOR2              5   // torso / body armor
+#define STAT_KP_ARMOR3              6   // legs armor
+#define STAT_KP_PICKUP_ICON         7
+#define STAT_KP_PICKUP_STRING       8
+#define STAT_KP_ENDPIC              9
+#define STAT_KP_TIMER               10
+#define STAT_KP_HELPICON            11
+#define STAT_KP_SELECTED_ITEM       12
+#define STAT_KP_LAYOUTS             13
+#define STAT_KP_FRAGS               14
+#define STAT_KP_FLASHES             15  // 1 = health, 2 = armor, 4 = ammo
+#define STAT_KP_CASH                16  // player pocket cash
+#define STAT_KP_PICKUP_COUNT        17
+#define STAT_KP_CLIP                18  // weapon clip ammo (-1 = no clip)
+#define STAT_KP_CLIP_ICON           19  // clip icon
+#define STAT_KP_HUD_INV             20
+// Singleplayer / Deathmatch talk and hire stats
+#define STAT_KP_HUD_ENEMY_TALK      21
+#define STAT_KP_HUD_SELF_TALK       22
+#define STAT_KP_HUD_ENEMY_TALK_TIME 23
+#define STAT_KP_HUD_SELF_TALK_TIME  24
+#define STAT_KP_FORCE_HUD           25
+#define STAT_KP_HUD_HIRE1           26
+#define STAT_KP_HUD_HIRE2           27
+#define STAT_KP_HUD_HIRE1_CMD       28
+#define STAT_KP_HUD_HIRE2_CMD       29
+// Teamplay / Bagman stats (reusing 21, 22, 26..29)
+#define STAT_KP_BAGCASH             21  // stolen cash carried in bag
+#define STAT_KP_DEPOSITED           22  // cash deposited in safe
+#define STAT_KP_TEAM1_SCORE         26  // team 1 (Dragons/Red) safe cash balance
+#define STAT_KP_TEAM2_SCORE         27  // team 2 (Nikki's/Blue) safe cash balance
+#define STAT_KP_TEAM1_FLASH         28  // 0 = none, 1 = green (deposit), 2 = red (stolen)
+#define STAT_KP_TEAM2_FLASH         29  // 0 = none, 1 = green (deposit), 2 = red (stolen)
+#define STAT_KP_HIDE_HUD            30
+#define STAT_KP_SWITCH_CAMERA       31
+
 #define MAX_STATS_OLD   32
 #define MAX_STATS_NEW   64
 
