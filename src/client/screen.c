@@ -1608,6 +1608,8 @@ static void HUD_DrawNumberSized(int x, int y, int color, int width, int value, i
         color = 0;
 
     l = Q_scnprintf(num, sizeof(num), "%i", value);
+    if (width < l && l <= 5)
+        width = l;
     if (l > width)
         l = width;
     x += 2 + dw * (width - l);
@@ -1632,7 +1634,7 @@ static void HUD_DrawNumber(int x, int y, int color, int width, int value)
     HUD_DrawNumberSized(x, y, color, width, value, DIGIT_WIDTH, DIGIT_HEIGHT);
 }
 
-// Kingpin's statusbar does not position these. The client does.
+// Kingpin's statusbar does not position armor doll. The client does.
 static void HUD_DrawKingpinArmor(void)
 {
     static const struct {
@@ -1640,11 +1642,11 @@ static void HUD_DrawKingpinArmor(void)
         int y;
         const char *light, *heavy, *green, *yellow, *red;
     } piece[] = {
-        { 4, 55, "armor_lt_h", "armor_hv_h", "armor_hg", "armor_hy", "armor_hr" },
-        { 5, 40, "armor_lt_b", "armor_hv_b", "armor_bg", "armor_by", "armor_br" },
-        { 6, 25, "armor_lt_l", "armor_hv_l", "armor_lg", "armor_ly", "armor_lr" },
+        { STAT_KP_ARMOR1, 55, "armor_lt_h", "armor_hv_h", "armor_hg", "armor_hy", "armor_hr" },
+        { STAT_KP_ARMOR2, 40, "armor_lt_b", "armor_hv_b", "armor_bg", "armor_by", "armor_br" },
+        { STAT_KP_ARMOR3, 25, "armor_lt_l", "armor_hv_l", "armor_lg", "armor_ly", "armor_lr" },
     };
-    int base_x = 20;
+    int base_x = 24;
     int base_y = scr.hud_height - 70;
     qhandle_t pic = R_RegisterImage("armor", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
 
@@ -1673,7 +1675,73 @@ static void HUD_DrawKingpinArmor(void)
             if (pic)
                 R_DrawStretchPic(base_x, base_y, 48, 64, pic);
         }
-        HUD_DrawNumberSized(8, scr.hud_height - piece[i].y, 0, 3, amount, 8, 12);
+        // Small 8x12 numbers to the left of the doll
+        HUD_DrawNumberSized(0, scr.hud_height - piece[i].y, 0, 3, amount, 8, 12);
+    }
+}
+
+// Kingpin Bagman: team safe cash and bag status display
+static void HUD_DrawKingpinTeams(void)
+{
+    // Team 1 (Dragons / Red)
+    int score1 = cl.frame.ps.stats[STAT_KP_TEAM1_SCORE];
+    int flash1 = cl.frame.ps.stats[STAT_KP_TEAM1_FLASH];
+    int color1 = 0; // white digits
+    if (flash1 == 1)
+        color1 = 1; // green (cash deposited)
+    else if (flash1 == 2)
+        color1 = ((cl.frame.number / CL_FRAMEDIV) >> 1) & 1 ? 3 : 4; // red flash (bag stolen)
+
+    qhandle_t pic1 = R_RegisterImage("pics/team1_icon.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+    if (!pic1)
+        pic1 = R_RegisterPic("team1_icon");
+    if (pic1)
+        R_DrawStretchPic(10, 8, 20, 44, pic1);
+
+    HUD_DrawNumber(34, 18, color1, 4, score1);
+
+    // If Team 1 safe has been breached/bag stolen, show alert
+    if (flash1 == 2 && (((cl.frame.number / CL_FRAMEDIV) >> 1) & 1)) {
+        HUD_DrawAltString(34, 6, "BAG STOLEN!");
+    }
+
+    // Team 2 (Nikki's Boys / Blue)
+    int score2 = cl.frame.ps.stats[STAT_KP_TEAM2_SCORE];
+    int flash2 = cl.frame.ps.stats[STAT_KP_TEAM2_FLASH];
+    int color2 = 0; // white digits
+    if (flash2 == 1)
+        color2 = 1; // green (cash deposited)
+    else if (flash2 == 2)
+        color2 = ((cl.frame.number / CL_FRAMEDIV) >> 1) & 1 ? 3 : 4; // red flash (bag stolen)
+
+    qhandle_t pic2 = R_RegisterImage("pics/team2_icon.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+    if (!pic2)
+        pic2 = R_RegisterPic("team2_icon");
+    if (pic2)
+        R_DrawStretchPic(scr.hud_width - 36, 12, 28, 28, pic2);
+
+    HUD_DrawNumber(scr.hud_width - 105, 18, color2, 4, score2);
+
+    // If Team 2 safe has been breached/bag stolen, show alert
+    if (flash2 == 2 && (((cl.frame.number / CL_FRAMEDIV) >> 1) & 1)) {
+        HUD_DrawAltString(scr.hud_width - 115, 6, "BAG STOLEN!");
+    }
+}
+
+// Kingpin Bagman: stolen bag cash carried by player
+static void HUD_DrawKingpinBagCash(void)
+{
+    int bagcash = cl.frame.ps.stats[STAT_KP_BAGCASH];
+
+    if (bagcash > 0) {
+        int color = ((cl.frame.number / CL_FRAMEDIV) >> 1) & 1 ? 3 : 4;
+        HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 102, color, 3, bagcash);
+
+        qhandle_t bag_pic = R_RegisterImage("pics/hh_money.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+        if (!bag_pic)
+            bag_pic = R_RegisterImage("pics/h_money.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+        if (bag_pic)
+            R_DrawStretchPic(scr.hud_width - 25, scr.hud_height - 102, 24, 24, bag_pic);
     }
 }
 
@@ -1691,7 +1759,9 @@ static void HUD_DrawKingpinIcon(int stat, int x, int y)
     R_GetPicSize(&w, &h, pic);
     if (w < 1 || h < 1)
         return;
-    R_DrawStretchPic(x, y, w / 2, h / 2, pic);
+    int dw = w > 32 ? w / 2 : w;
+    int dh = h > 32 ? h / 2 : h;
+    R_DrawStretchPic(x, y, dw, dh, pic);
 }
 
 #define DISPLAY_ITEMS   17
@@ -1775,8 +1845,10 @@ static void SCR_SkipToEndif(const char **s)
     while (*s) {
         token = COM_Parse(s);
         if (!strcmp(token, "xl") || !strcmp(token, "xr") || !strcmp(token, "xv") ||
+            !strcmp(token, "xm") || !strcmp(token, "ym") ||
             !strcmp(token, "yt") || !strcmp(token, "yb") || !strcmp(token, "yv") ||
             !strcmp(token, "pic") || !strcmp(token, "picn") || !strcmp(token, "color") ||
+            !strcmp(token, "tscore") || !strcmp(token, "teampic") || !strcmp(token, "leader") ||
             strstr(token, "string")) {
             COM_SkipToken(s);
             if (strstr(token, "string")) {
@@ -1795,13 +1867,14 @@ static void SCR_SkipToEndif(const char **s)
             continue;
         }
 
-        if (!strcmp(token, "ctf")) {
+        if (!strcmp(token, "ctf") || !strcmp(token, "ds")) {
             for (i = 0; i < 5; i++)
                 COM_SkipToken(s);
             continue;
         }
 
-        if (!strcmp(token, "num") || !strcmp(token, "health_bars")) {
+        if (!strcmp(token, "num") || !strcmp(token, "health_bars") ||
+            !strcmp(token, "dmstr") || !strcmp(token, "picnote")) {
             COM_SkipToken(s);
             COM_SkipToken(s);
             continue;
@@ -1819,17 +1892,9 @@ static void SCR_SkipToEndif(const char **s)
         if (!strcmp(token, "rnum")) continue;
         if (!strcmp(token, "wanum") || !strcmp(token, "cnum") ||
             !strcmp(token, "frags") || !strcmp(token, "talk") ||
-            !strcmp(token, "hire") || !strcmp(token, "bagcash"))
+            !strcmp(token, "hire") || !strcmp(token, "bagcash") ||
+            !strcmp(token, "teams"))
             continue;
-        if (!strcmp(token, "picnote")) {
-            COM_SkipToken(s);
-            continue;
-        }
-        if (!strcmp(token, "teams")) {
-            COM_SkipToken(s);
-            COM_SkipToken(s);
-            continue;
-        }
 
         if (!strcmp(token, "if")) {
             COM_SkipToken(s);
@@ -1883,7 +1948,7 @@ static const char *SCR_KingpinLayout(const char *s, char *buf, size_t size)
 static void SCR_ExecuteLayoutString(const char *s)
 {
     char    buffer[MAX_QPATH];
-    char    layout[2048];
+    char    layout[4096];
     int     x, y;
     int     value;
     char    *token;
@@ -1920,6 +1985,12 @@ static void SCR_ExecuteLayoutString(const char *s)
                     x = scr.hud_width / 2 - 160 + Q_atoi(token);
                     continue;
                 }
+
+                if (token[1] == 'm') {
+                    token = COM_Parse(&s);
+                    x = scr.hud_width / 2 + Q_atoi(token);
+                    continue;
+                }
             }
 
             if (token[0] == 'y') {
@@ -1938,6 +2009,12 @@ static void SCR_ExecuteLayoutString(const char *s)
                 if (token[1] == 'v') {
                     token = COM_Parse(&s);
                     y = scr.hud_height / 2 - 120 + Q_atoi(token);
+                    continue;
+                }
+
+                if (token[1] == 'm') {
+                    token = COM_Parse(&s);
+                    y = scr.hud_height / 2 + Q_atoi(token);
                     continue;
                 }
             }
@@ -2081,7 +2158,7 @@ static void SCR_ExecuteLayoutString(const char *s)
                     color = 0;
                 else
                     color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1 ? 3 : 4;
-                HUD_DrawNumber(60, scr.hud_height - 30, color, width, value);
+                HUD_DrawNumber(64, scr.hud_height - 30, color, width, value);
                 HUD_DrawKingpinArmor();
             } else {
                 if (value > 25)
@@ -2111,10 +2188,14 @@ static void SCR_ExecuteLayoutString(const char *s)
             value = cl.frame.ps.stats[STAT_AMMO];
             if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
                 if (icon > 0)
-                    HUD_DrawKingpinIcon(icon, scr.hud_width - 25, scr.hud_height - 30);
+                    HUD_DrawKingpinIcon(icon, scr.hud_width - 25, scr.hud_height - 24);
                 if (value < 0)
                     continue;
-                HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 20, 0, width, value);
+                if (value <= 5)
+                    color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1 ? 3 : 4;
+                else
+                    color = 0;
+                HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 24, color, width, value);
             } else {
                 if (value > 5)
                     color = 0;
@@ -2131,7 +2212,7 @@ static void SCR_ExecuteLayoutString(const char *s)
 
         if (!strcmp(token, "rnum")) {
             int     color;
-            int     armor = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? 4 : STAT_ARMOR;
+            int     armor = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? STAT_KP_ARMOR1 : STAT_ARMOR;
 
             width = 3;
             value = cl.frame.ps.stats[armor];
@@ -2149,31 +2230,42 @@ static void SCR_ExecuteLayoutString(const char *s)
 
         if (!strcmp(token, "wanum")) {
             // weapon clip. -1 means the weapon has no clip.
-            value = cl.frame.ps.stats[18];
+            value = cl.frame.ps.stats[STAT_KP_CLIP];
             if (value < 0)
                 continue;
-            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
-                HUD_DrawNumber(scr.hud_width - 40, scr.hud_height - 50, 0, 3, value);
-            else
-                HUD_DrawNumber(x, y, 0, 3, value);
+            int color = 0;
+            if (value <= 2)
+                color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1 ? 3 : 4;
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+                if (cl.frame.ps.stats[STAT_KP_CLIP_ICON] > 0)
+                    HUD_DrawKingpinIcon(cl.frame.ps.stats[STAT_KP_CLIP_ICON], scr.hud_width - 25, scr.hud_height - 50);
+                HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 50, color, 3, value);
+            } else {
+                HUD_DrawNumber(x, y, color, 3, value);
+            }
             continue;
         }
 
         if (!strcmp(token, "cnum")) {
-            value = cl.frame.ps.stats[16];
+            value = cl.frame.ps.stats[STAT_KP_CASH];
             if (value < 0)
                 continue;
-            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
-                HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 78, 1, 3, value);
-            else
-                HUD_DrawNumber(x, y, 1, 3, value);
+            width = value >= 1000 ? 4 : 3;
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+                qhandle_t cash_pic = R_RegisterImage("pics/h_money.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+                if (cash_pic)
+                    R_DrawStretchPic(scr.hud_width - 25, scr.hud_height - 76, 24, 24, cash_pic);
+                HUD_DrawNumber(scr.hud_width - (width > 3 ? 76 : 60), scr.hud_height - 76, 1, width, value);
+            } else {
+                HUD_DrawNumber(x, y, 1, width, value);
+            }
             continue;
         }
 
         if (!strcmp(token, "frags")) {
             if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
                 HUD_DrawString(scr.hud_width - 85, 20, "Frags");
-                HUD_DrawNumber(scr.hud_width - 53, 5, 0, 3, cl.frame.ps.stats[STAT_FRAGS]);
+                HUD_DrawNumber(scr.hud_width - 53, 5, 0, 3, cl.frame.ps.stats[STAT_KP_FRAGS]);
             } else {
                 HUD_DrawNumber(x, y, 0, 3, cl.frame.ps.stats[STAT_FRAGS]);
             }
@@ -2181,17 +2273,154 @@ static void SCR_ExecuteLayoutString(const char *s)
         }
 
         if (!strcmp(token, "picnote")) {
-            COM_Parse(&s);
+            const char *pic_name = COM_Parse(&s);
+            const char *note = COM_Parse(&s);
+            qhandle_t pic = R_RegisterImage(pic_name, IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+            if (!pic)
+                pic = R_RegisterPic(pic_name);
+            if (pic)
+                R_DrawPic(x, y, pic);
+            if (note && note[0])
+                HUD_DrawString(x + 36, y + 8, note);
             continue;
         }
 
-        if (!strcmp(token, "talk") || !strcmp(token, "hire") ||
-            !strcmp(token, "bagcash"))
+        if (!strcmp(token, "dmstr")) {
+            char color_str[16];
+            int r = 255, g = 255, b = 255;
+
+            token = COM_Parse(&s);
+            Q_strlcpy(color_str, token, sizeof(color_str));
+            if (strlen(color_str) >= 3) {
+                r = (color_str[0] - '0') * 255 / 9;
+                g = (color_str[1] - '0') * 255 / 9;
+                b = (color_str[2] - '0') * 255 / 9;
+            }
+            token = COM_Parse(&s);
+            R_SetColor(MakeColor(r, g, b, 255 * scr_alpha->value));
+            HUD_DrawString(x, y, token);
+            R_ClearColor();
+            R_SetAlpha(scr_alpha->value);
+            continue;
+        }
+
+        if (!strcmp(token, "ds")) {
+            char color_str[16];
+            int r = 255, g = 255, b = 255;
+            int client_num, ping, time, score;
+            char out[128];
+            char name[16] = {0};
+
+            token = COM_Parse(&s);
+            Q_strlcpy(color_str, token, sizeof(color_str));
+            if (strlen(color_str) >= 3) {
+                r = (color_str[0] - '0') * 255 / 9;
+                g = (color_str[1] - '0') * 255 / 9;
+                b = (color_str[2] - '0') * 255 / 9;
+            }
+
+            token = COM_Parse(&s);
+            client_num = Q_atoi(token);
+
+            token = COM_Parse(&s);
+            ping = Q_atoi(token);
+
+            token = COM_Parse(&s);
+            time = Q_atoi(token);
+
+            token = COM_Parse(&s);
+            score = Q_atoi(token);
+
+            if (client_num >= 0 && client_num < MAX_CLIENTS) {
+                ci = &cl.clientinfo[client_num];
+                const char *src_name = ci->name[0] ? ci->name : "(unknown)";
+                for (int i = 0; i < 13; i++) {
+                    if (src_name[i])
+                        name[i] = src_name[i];
+                    else
+                        name[i] = ' ';
+                }
+                name[13] = '\0';
+            } else {
+                Q_strlcpy(name, "(unknown)    ", sizeof(name));
+            }
+
+            if (ping > 999) ping = 999;
+            Q_snprintf(out, sizeof(out), "%s %3i %4i %5i", name, ping, time, score);
+            R_SetColor(MakeColor(r, g, b, 255 * scr_alpha->value));
+            HUD_DrawString(x, y, out);
+            R_ClearColor();
+            R_SetAlpha(scr_alpha->value);
+            continue;
+        }
+
+        if (!strcmp(token, "tscore")) {
+            int team, score = 0, flash = 0, color = 0;
+
+            token = COM_Parse(&s);
+            team = Q_atoi(token);
+            if (team == 1) {
+                score = cl.frame.ps.stats[STAT_KP_TEAM1_SCORE];
+                flash = cl.frame.ps.stats[STAT_KP_TEAM1_FLASH];
+            } else if (team == 2) {
+                score = cl.frame.ps.stats[STAT_KP_TEAM2_SCORE];
+                flash = cl.frame.ps.stats[STAT_KP_TEAM2_FLASH];
+            }
+            if (flash == 1)
+                color = 1; // green
+            else if (flash == 2)
+                color = ((cl.frame.number / CL_FRAMEDIV) >> 1) & 1 ? 3 : 4; // red flash
+            else
+                color = 0; // white
+
+            HUD_DrawNumber(x, y, color, 4, score);
+            continue;
+        }
+
+        if (!strcmp(token, "teampic")) {
+            int team;
+            qhandle_t pic = 0;
+
+            token = COM_Parse(&s);
+            team = Q_atoi(token);
+            if (team == 1)
+                pic = R_RegisterImage("pics/team1_icon.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+            else if (team == 2)
+                pic = R_RegisterImage("pics/team2_icon.tga", IT_PIC, IF_PERMANENT | IF_OPTIONAL);
+
+            if (pic)
+                R_DrawPic(x, y, pic);
+            continue;
+        }
+
+        if (!strcmp(token, "leader")) {
+            int leader;
+
+            token = COM_Parse(&s);
+            leader = Q_atoi(token);
+            if (leader >= 0 && leader < MAX_CLIENTS) {
+                ci = &cl.clientinfo[leader];
+                HUD_DrawCenterString(scr.hud_width / 4, 30, "Current Kingpin");
+                if (ci->name[0])
+                    HUD_DrawCenterString(scr.hud_width / 4, scr.hud_height - 80, ci->name);
+                if (ci->icon)
+                    R_DrawPic(scr.hud_width / 4 - 16, 45, ci->icon);
+            }
+            continue;
+        }
+
+        if (!strcmp(token, "talk") || !strcmp(token, "hire"))
             continue;
 
+        if (!strcmp(token, "bagcash")) {
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                HUD_DrawKingpinBagCash();
+            continue;
+        }
+
         if (!strcmp(token, "teams")) {
-            COM_Parse(&s);
-            COM_Parse(&s);
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                HUD_DrawKingpinTeams();
             continue;
         }
 
