@@ -164,8 +164,9 @@ jobs:
           architecture: x86-64
           version: '14.3'
           run: |
-            sudo pkg update
-            sudo pkg install -y git meson pkgconf openal-soft \
+            echo "IGNORE_OSVERSION = yes;" | sudo tee -a /usr/local/etc/pkg.conf
+            sudo env IGNORE_OSVERSION=yes pkg update -f
+            sudo env IGNORE_OSVERSION=yes pkg install -y git meson pkgconf openal-soft \
             sdl2 curl png jpeg-turbo libX11 libdecor evdev-proto wayland-protocols
             meson setup ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_FREEBSD }} builddir
-            meson compile -C builddir
+            meson compile -C builddir openkp
