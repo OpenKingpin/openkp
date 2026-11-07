@@ -244,8 +244,8 @@ static bool CL_ParseSkinFolderText(const char *model_name, const char *skin_fold
 {
     char filename[MAX_QPATH];
     void *buffer = NULL;
-    ssize_t len;
-    char *p, *line, *saveptr;
+    int len;
+    char *p, *line, *end;
     bool found_h = false, found_b = false, found_l = false;
 
     Q_snprintf(filename, sizeof(filename), "players/%s/%s/skinfolder.txt", model_name, skin_folder);
@@ -258,8 +258,18 @@ static bool CL_ParseSkinFolderText(const char *model_name, const char *skin_fold
     }
 
     p = (char *)buffer;
-    line = strtok_r(p, "\r\n", &saveptr);
-    while (line) {
+    end = p + len;
+    while (p < end) {
+        line = p;
+        while (p < end && *p != '\r' && *p != '\n')
+            p++;
+        if (p < end) {
+            *p = '\0';
+            p++;
+            if (p < end && (*p == '\r' || *p == '\n') && *p != *(p - 1))
+                p++;
+        }
+
         while (*line == ' ' || *line == '\t') line++;
         if (!Q_strncasecmp(line, "head:", 5)) {
             Q_strlcpy(out_head, COM_TrimSpace(line + 5), maxlen);
@@ -271,7 +281,6 @@ static bool CL_ParseSkinFolderText(const char *model_name, const char *skin_fold
             Q_strlcpy(out_legs, COM_TrimSpace(line + 5), maxlen);
             found_l = true;
         }
-        line = strtok_r(NULL, "\r\n", &saveptr);
     }
 
     FS_FreeFile(buffer);
