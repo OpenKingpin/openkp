@@ -1135,7 +1135,9 @@ void GL_LoadWorld(const char *name)
     for (i = n64surfs = 0, surf = bsp->faces; i < bsp->numfaces; i++, surf++) {
         int flags = surf->texinfo->c.flags;
 
-        if (flags & (SURF_ALPHA | SURF_WNDW33))
+        if (flags & SURF_ALPHA)
+            flags |= SURF_ALPHATEST;
+        if (flags & SURF_WNDW33)
             flags |= SURF_TRANS33;
         if (flags & SURF_WNDW66)
             flags |= SURF_TRANS66;

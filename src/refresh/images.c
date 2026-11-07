@@ -676,10 +676,49 @@ IMG_LOAD(TGA)
         pixel_size = colormap_size;
     }
 
-    if (pixel_size == 8)
+    if (pixel_size == 8) {
         image->flags |= IF_TRANSPARENT;
-    else if (pixel_size != 32)
+    } else if (pixel_size != 32) {
         image->flags |= IF_OPAQUE;
+    } else {
+        bool has_trans = false;
+        bool has_opaque = false;
+
+        for (i = 0; i < h; i++) {
+            for (j = 0; j < w; j++) {
+                uint32_t p = row_pointers[i][j];
+                if ((p & U32_ALPHA) != U32_ALPHA)
+                    has_trans = true;
+                if ((p & U32_ALPHA) != 0)
+                    has_opaque = true;
+            }
+        }
+
+        if (has_trans) {
+            image->flags |= IF_TRANSPARENT;
+            if (has_opaque) {
+                for (i = 0; i < h; i++) {
+                    for (j = 0; j < w; j++) {
+                        if ((row_pointers[i][j] & U32_ALPHA) == 0) {
+                            uint32_t rgb = 0;
+                            if (i > 0 && (row_pointers[i - 1][j] & U32_ALPHA))
+                                rgb = row_pointers[i - 1][j] & U32_RGB;
+                            else if (i < h - 1 && (row_pointers[i + 1][j] & U32_ALPHA))
+                                rgb = row_pointers[i + 1][j] & U32_RGB;
+                            else if (j > 0 && (row_pointers[i][j - 1] & U32_ALPHA))
+                                rgb = row_pointers[i][j - 1] & U32_RGB;
+                            else if (j < w - 1 && (row_pointers[i][j + 1] & U32_ALPHA))
+                                rgb = row_pointers[i][j + 1] & U32_RGB;
+                            if (rgb)
+                                row_pointers[i][j] = rgb;
+                        }
+                    }
+                }
+            }
+        } else {
+            image->flags |= IF_OPAQUE;
+        }
+    }
 
     return Q_ERR_SUCCESS;
 }

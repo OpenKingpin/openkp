@@ -511,6 +511,8 @@ static void CL_AddKingpinModelParts(entity_t *ent, const centity_state_t *s1)
             continue;
         if (part->modelindex == s1->modelindex)
             continue;
+        if (s1->modelindex == MODELINDEX_PLAYER && p == 3)
+            continue;
 
         const char *name = cl.configstrings[cl.csr.models + part->modelindex];
         if (name[0] == '#') {
@@ -575,6 +577,7 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
     const clientinfo_t *ci;
     int i;
     qhandle_t models[3], skins[3];
+    qhandle_t weapon_model = 0;
 
     if (client < 0 || client >= MAX_CLIENTS)
         return;
@@ -595,6 +598,38 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
             continue;
         ent->model = models[i];
         ent->skin = skins[i];
+        ent->skinnum = 0;
+        ent->hidden_parts = 0;
+        V_AddEntity(ent);
+    }
+
+    // Attach Kingpin visual weapon model (vwep / model_parts[3])
+    if (s1->model_parts[3].modelindex > 0 && s1->model_parts[3].modelindex < MODELINDEX_PLAYER) {
+        weapon_model = cl.model_draw[s1->model_parts[3].modelindex];
+    } else if (s1->modelindex2 > 0 && s1->modelindex2 < MODELINDEX_PLAYER) {
+        weapon_model = cl.model_draw[s1->modelindex2];
+    } else if (s1->model_parts[3].modelindex == MODELINDEX_PLAYER ||
+               s1->modelindex2 == MODELINDEX_PLAYER ||
+               (s1->skinnum >> 8) > 0) {
+        int weap = (s1->skinnum >> 8);
+        int weap_idx = 0;
+
+        if (weap > 0)
+            weap_idx = weap - 1;
+
+        if (!cl_vwep->integer || weap_idx < 0 || weap_idx >= cl.numWeaponModels)
+            weap_idx = 0;
+
+        weapon_model = ci->weaponmodel[weap_idx];
+        if (!weapon_model && weap_idx != 0)
+            weapon_model = ci->weaponmodel[0];
+        if (!weapon_model)
+            weapon_model = cl.baseclientinfo.weaponmodel[0];
+    }
+
+    if (weapon_model) {
+        ent->model = weapon_model;
+        ent->skin = 0;
         ent->skinnum = 0;
         ent->hidden_parts = 0;
         V_AddEntity(ent);
@@ -1026,7 +1061,7 @@ static void CL_AddPacketEntities(void)
         ent.alpha = custom_alpha;
 
         // duplicate for linked models
-        if (s1->modelindex2) {
+        if (s1->modelindex2 && !(cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && s1->modelindex == MODELINDEX_PLAYER)) {
             if (s1->modelindex2 == MODELINDEX_PLAYER) {
                 // custom weapon
                 ci = &cl.clientinfo[s1->skinnum & 0xff];

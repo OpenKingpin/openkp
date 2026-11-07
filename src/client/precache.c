@@ -34,15 +34,16 @@ void CL_ParsePlayerSkin(char *name, char *model, char *skin, const char *s)
 {
     size_t len;
     char *t;
+    const char *slash;
 
     len = strlen(s);
     Q_assert(len < MAX_QPATH);
 
     // isolate the player's name
-    t = strchr(s, '\\');
-    if (t) {
-        len = t - s;
-        strcpy(model, t + 1);
+    slash = strchr(s, '\\');
+    if (slash) {
+        len = slash - s;
+        strcpy(model, slash + 1);
     } else {
         len = 0;
         strcpy(model, s);
@@ -302,6 +303,9 @@ static void CL_LoadKingpinClientinfo(clientinfo_t *ci, const char *s)
                        "players/male_thug/%s", cl.weaponModels[w]);
             ci->weaponmodel[w] = R_RegisterModel(weapon_filename);
         }
+        if (!ci->weaponmodel[w] && w == 0) {
+            ci->weaponmodel[0] = R_RegisterModel("players/male_thug/w_pipe.mdx");
+        }
     }
 }
 
@@ -473,6 +477,16 @@ void CL_RegisterBspModels(void)
     }
 }
 
+static const char *const kp_standard_weapons[] = {
+    "w_pipe.mdx",
+    "w_pistol.mdx",
+    "w_shotgun.mdx",
+    "w_tommygun.mdx",
+    "w_hgun.mdx",
+    "w_bazooka.mdx",
+    "w_flame.mdx"
+};
+
 /*
 =================
 CL_RegisterVWepModels
@@ -485,11 +499,56 @@ void CL_RegisterVWepModels(void)
     int         i;
     char        *name;
 
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        cl.numWeaponModels = 0;
+        if (!cl_vwep->integer) {
+            cl.numWeaponModels = 1;
+            strcpy(cl.weaponModels[0], "w_pipe.mdx");
+            return;
+        }
+
+        for (i = 1; i < cl.csr.max_models; i++) {
+            name = cl.configstrings[cl.csr.models + i];
+            if (!name[0] && i != MODELINDEX_PLAYER)
+                break;
+            if (name[0] != '#')
+                continue;
+
+            const char *weap = name + 1;
+            bool exists = false;
+            for (int k = 0; k < cl.numWeaponModels; k++) {
+                if (!strcmp(cl.weaponModels[k], weap)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists && cl.numWeaponModels < MAX_CLIENTWEAPONMODELS) {
+                Q_strlcpy(cl.weaponModels[cl.numWeaponModels++], weap, sizeof(cl.weaponModels[0]));
+            }
+        }
+
+        for (i = 0; i < (int)q_countof(kp_standard_weapons); i++) {
+            bool exists = false;
+            for (int k = 0; k < cl.numWeaponModels; k++) {
+                if (!strcmp(cl.weaponModels[k], kp_standard_weapons[i])) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists && cl.numWeaponModels < MAX_CLIENTWEAPONMODELS) {
+                Q_strlcpy(cl.weaponModels[cl.numWeaponModels++], kp_standard_weapons[i], sizeof(cl.weaponModels[0]));
+            }
+        }
+
+        if (cl.numWeaponModels == 0) {
+            cl.numWeaponModels = 1;
+            strcpy(cl.weaponModels[0], "w_pipe.mdx");
+        }
+        return;
+    }
+
     cl.numWeaponModels = 1;
-    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
-        strcpy(cl.weaponModels[0], "w_pipe.mdx");
-    else
-        strcpy(cl.weaponModels[0], "weapon.md2");
+    strcpy(cl.weaponModels[0], "weapon.md2");
 
     // only default model when vwep is off
     if (!cl_vwep->integer) {
