@@ -210,6 +210,64 @@ static void parse_entity_event(int number)
         return;
 #endif
 
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        bool is_local = (number == cl.clientNum + 1);
+
+        switch (cent->current.event) {
+        case EV_KP_ITEM_RESPAWN:
+            S_StartSound(NULL, number, CHAN_WEAPON, S_RegisterSound("items/respawn1.wav"), 1, ATTN_IDLE, 0);
+            CL_ItemRespawnParticles(cent->current.origin);
+            return;
+        case EV_KP_FOOTSTEP0:
+        case EV_KP_FOOTSTEP1:
+        case EV_KP_FOOTSTEP2:
+        case EV_KP_FOOTSTEP3:
+        case EV_KP_FOOTSTEP4:
+        case EV_KP_FOOTSTEP5:
+        case EV_KP_FOOTSTEP6:
+        case EV_KP_FOOTSTEP7:
+        case EV_KP_FOOTSTEP8:
+            if (cl_footsteps->integer) {
+                if (is_local && cl_predict->integer && !(cl.frame.ps.pmove.pm_flags & PMF_NO_PREDICTION))
+                    return;
+                int surf = cent->current.event - EV_KP_FOOTSTEP0;
+                CL_PlayKingpinFootstep(number, surf, 0.5f, ATTN_NORM);
+            }
+            return;
+        case EV_KP_FALLSHORT0:
+        case EV_KP_FALLSHORT1:
+        case EV_KP_FALLSHORT2:
+        case EV_KP_FALLSHORT3:
+        case EV_KP_FALLSHORT4:
+        case EV_KP_FALLSHORT5:
+        case EV_KP_FALLSHORT6:
+        case EV_KP_FALLSHORT7:
+        case EV_KP_FALLSHORT8:
+            if (cl_footsteps->integer) {
+                if (is_local && cl_predict->integer && !(cl.frame.ps.pmove.pm_flags & PMF_NO_PREDICTION))
+                    return;
+                int surf = cent->current.event - EV_KP_FALLSHORT0;
+                CL_PlayKingpinLand(number, surf, 1.0f, ATTN_IDLE);
+            }
+            return;
+        case EV_KP_FALL:
+            S_StartSound(NULL, number, CHAN_VOICE, cl_kp_falls[0], 1.0f, ATTN_IDLE, 0);
+            return;
+        case EV_KP_FALLFAR:
+            S_StartSound(NULL, number, CHAN_VOICE, cl_kp_falls[1], 1.0f, ATTN_IDLE, 0);
+            return;
+        case EV_KP_PLAYER_TELEPORT:
+            S_StartSound(NULL, number, CHAN_WEAPON, S_RegisterSound("misc/tele1.wav"), 1, ATTN_IDLE, 0);
+            CL_TeleportParticles(cent->current.origin);
+            return;
+        case EV_KP_OTHER_TELEPORT:
+            CL_TeleportParticles(cent->current.origin);
+            return;
+        default:
+            return;
+        }
+    }
+
     switch (cent->current.event) {
     case EV_ITEM_RESPAWN:
         S_StartSound(NULL, number, CHAN_WEAPON, S_RegisterSound("items/respawn1.wav"), 1, ATTN_IDLE, 0);

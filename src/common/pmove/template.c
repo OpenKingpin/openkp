@@ -567,10 +567,14 @@ static void PM_CategorizePosition(void)
     if (pml.velocity[2] > 180) { //!!ZOID changed from 100 to 180 (ramp accel)
         pm->s.pm_flags &= ~PMF_ON_GROUND;
         pm->groundentity = NULL;
+#ifdef PMOVE_NEW
+        pm->groundsurface = NULL;
+#endif
     } else {
         trace = PMOVE_TRACE(pml.origin, pm->mins, pm->maxs, point);
 #ifdef PMOVE_NEW
         pm->groundplane = trace.plane;
+        pm->groundsurface = trace.surface;
 #endif
         pml.groundsurface = trace.surface;
         pml.groundcontents = trace.contents;
@@ -578,6 +582,9 @@ static void PM_CategorizePosition(void)
         if (!trace.ent || (trace.plane.normal[2] < 0.7f && !trace.startsolid)) {
             pm->groundentity = NULL;
             pm->s.pm_flags &= ~PMF_ON_GROUND;
+#ifdef PMOVE_NEW
+            pm->groundsurface = NULL;
+#endif
         } else {
             pm->groundentity = trace.ent;
 
@@ -688,6 +695,9 @@ static void PM_CheckJump(void)
 
     pm->groundentity = NULL;
     pm->s.pm_flags &= ~PMF_ON_GROUND;
+#ifdef PMOVE_NEW
+    pm->groundsurface = NULL;
+#endif
     pml.velocity[2] += 270;
     if (pml.velocity[2] < 270)
         pml.velocity[2] = 270;
@@ -1077,6 +1087,9 @@ void PMOVE_FUNC(PMOVE_TYPE *pmove, const pmoveParams_t *params)
     VectorClear(pm->viewangles);
     pm->viewheight = 0;
     pm->groundentity = NULL;
+#ifdef PMOVE_NEW
+    pm->groundsurface = NULL;
+#endif
     pm->watertype = 0;
     pm->waterlevel = 0;
 

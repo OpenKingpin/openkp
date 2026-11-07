@@ -190,6 +190,14 @@ typedef struct {
     vec3_t      predicted_velocity;
     vec3_t      prediction_error;
 
+    // Kingpin predictive audio state
+    unsigned    predicted_sound_cmd;
+    float       predicted_step_dist;
+    float       predicted_ladder_dist;
+    int         predicted_gun_model;
+    int         predicted_attack_button;
+    unsigned    predicted_jump_time;
+
     // rebuilt each valid frame
     centity_t       *solidEntities[MAX_PACKET_ENTITIES];
     int             numSolidEntities;
@@ -836,6 +844,25 @@ void CL_AddMuzzleFX(const vec3_t origin, const vec3_t angles, cl_muzzlefx_t fx, 
 void CL_SmokeAndFlash(const vec3_t origin);
 void CL_DrawBeam(const vec3_t org, const vec3_t end, qhandle_t model);
 void CL_PlayFootstepSfx(int step_id, int entnum, float volume, float attenuation);
+
+// Kingpin sound effects
+extern qhandle_t cl_kp_steps[KP_SURF_COUNT][4];
+extern qhandle_t cl_kp_lands[KP_SURF_COUNT];
+extern qhandle_t cl_kp_jumps[3];
+extern qhandle_t cl_kp_falls[2];
+extern qhandle_t cl_kp_noammo;
+extern qhandle_t cl_kp_machgcock;
+extern qhandle_t cl_kp_hmgcock;
+extern qhandle_t cl_kp_shotgload;
+extern qhandle_t cl_kp_pistol_clip;
+extern qhandle_t cl_kp_rocket_reload;
+extern qhandle_t cl_kp_grenade_reload;
+
+int CL_SurfaceToKingpinStep(const csurface_t *surf, int contents, int waterlevel);
+int CL_TraceSurfaceFootstep(const vec3_t origin, const vec3_t mins, const vec3_t maxs);
+void CL_PlayKingpinFootstep(int entnum, int surf_type, float volume, float attenuation);
+void CL_PlayKingpinLand(int entnum, int surf_type, float volume, float attenuation);
+void CL_PlayKingpinJump(int entnum);
 
 void CL_RegisterTEntSounds(void);
 void CL_RegisterTEntModels(void);
