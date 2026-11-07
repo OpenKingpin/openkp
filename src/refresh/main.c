@@ -275,7 +275,17 @@ void GL_SetEntityAxis(void)
     glr.entrotated = false;
     glr.entscale = 1;
 
-    if (VectorEmpty(e->angles)) {
+    if (e->flags & RF_FACING) {
+        VectorCopy(glr.viewaxis[0], glr.entaxis[0]);
+        VectorCopy(glr.viewaxis[1], glr.entaxis[1]);
+        VectorCopy(glr.viewaxis[2], glr.entaxis[2]);
+        glr.entrotated = true;
+    } else if (e->flags & RF_FACINGUP) {
+        VectorSet(glr.entaxis[0], 1, 0, 0);
+        VectorSet(glr.entaxis[1], 0, 1, 0);
+        VectorSet(glr.entaxis[2], 0, 0, 1);
+        glr.entrotated = true;
+    } else if (VectorEmpty(e->angles)) {
         VectorSet(glr.entaxis[0], 1, 0, 0);
         VectorSet(glr.entaxis[1], 0, 1, 0);
         VectorSet(glr.entaxis[2], 0, 0, 1);
@@ -363,10 +373,26 @@ static void GL_DrawSpriteModel(const model_t *model)
     GL_ArrayBits(GLA_VERTEX | GLA_TC);
     GL_Color(1, 1, 1, alpha);
 
-    VectorScale(glr.viewaxis[1], frame->origin_x * scale, left);
-    VectorScale(glr.viewaxis[1], (frame->origin_x - frame->width) * scale, right);
-    VectorScale(glr.viewaxis[2], -frame->origin_y * scale, down);
-    VectorScale(glr.viewaxis[2], (frame->height - frame->origin_y) * scale, up);
+    if (e->flags & RF_FACINGUP) {
+        vec3_t horiz_right, horiz_forward;
+        if (!VectorEmpty(e->angles)) {
+            vec3_t angles;
+            VectorSet(angles, 0, e->angles[YAW], 0);
+            AngleVectors(angles, horiz_forward, horiz_right, NULL);
+        } else {
+            VectorSet(horiz_right, 0, 1, 0);
+            VectorSet(horiz_forward, 1, 0, 0);
+        }
+        VectorScale(horiz_right, frame->origin_x * scale, left);
+        VectorScale(horiz_right, (frame->origin_x - frame->width) * scale, right);
+        VectorScale(horiz_forward, -frame->origin_y * scale, down);
+        VectorScale(horiz_forward, (frame->height - frame->origin_y) * scale, up);
+    } else {
+        VectorScale(glr.viewaxis[1], frame->origin_x * scale, left);
+        VectorScale(glr.viewaxis[1], (frame->origin_x - frame->width) * scale, right);
+        VectorScale(glr.viewaxis[2], -frame->origin_y * scale, down);
+        VectorScale(glr.viewaxis[2], (frame->height - frame->origin_y) * scale, up);
+    }
 
     VectorAdd3(e->origin, down, left,  tess.vertices);
     VectorAdd3(e->origin, up,   left,  tess.vertices +  5);

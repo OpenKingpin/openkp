@@ -993,6 +993,7 @@ typedef struct {
 //
 #define BUTTON_ATTACK   BIT(0)
 #define BUTTON_USE      BIT(1)
+#define BUTTON_ACTIVATE BIT(2)  // Kingpin: talk / activate / interact
 #define BUTTON_ANY      BIT(7)  // any key whatsoever
 
 // usercmd_t is sent to the server each client frame
@@ -1133,6 +1134,12 @@ typedef struct {
 #define RF_NOSHADOW         BIT(13)     // used by YQ2
 #define RF_CASTSHADOW       BIT(14)     // used by KEX
 
+// Kingpin render flags (protocol 32)
+#define RF_REFL_MAP         BIT(13)     // environment reflection mapping
+#define RF_FACING           BIT(14)     // billboard facing viewer
+#define RF_FACINGUP         BIT(15)     // billboard aligned flat to ground plane
+#define RF_DIMLIGHT         BIT(16)     // always draw dim light intensity
+
 //ROGUE
 #define RF_IR_VISIBLE       BIT(15)
 #define RF_SHELL_DOUBLE     BIT(16)
@@ -1165,6 +1172,7 @@ typedef struct {
 //ROGUE
 
 #define RDF_TELEPORT_BIT    BIT(4)      // used by Q2PRO (extended servers)
+#define RDF_NOMIRROR_WEAPON BIT(5)      // Kingpin MDX weapon models must not be mirrored
 
 //
 // muzzle flashes / player effects

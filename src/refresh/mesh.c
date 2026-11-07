@@ -388,7 +388,9 @@ static void setup_color(void)
     } else {
         GL_LightPoint(origin, color);
 
-        if (flags & RF_MINLIGHT) {
+        if (flags & RF_DIMLIGHT) {
+            VectorSet(color, 0.25f, 0.25f, 0.25f);
+        } else if (flags & RF_MINLIGHT) {
             f = VectorLength(color);
             if (!f)
                 VectorSet(color, 0.1f, 0.1f, 0.1f);
@@ -929,9 +931,11 @@ static void setup_weaponmodel(void)
         }
     }
 
-    if ((info_hand->integer == 1 && cl_gun->integer == 1) || cl_gun->integer == 3) {
-        reflect_x = -1.0f;
-        qglFrontFace(GL_CCW);
+    if (!(glr.fd.rdflags & RDF_NOMIRROR_WEAPON)) {
+        if ((info_hand->integer == 1 && cl_gun->integer == 1) || cl_gun->integer == 3) {
+            reflect_x = -1.0f;
+            qglFrontFace(GL_CCW);
+        }
     }
 
     GL_Frustum(fov_x, fov_y, reflect_x);

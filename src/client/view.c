@@ -454,6 +454,8 @@ void V_RenderView(void)
         cl.refdef.dlights = r_dlights;
         cl.refdef.lightstyles = r_lightstyles;
         cl.refdef.rdflags = cl.frame.ps.rdflags;
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            cl.refdef.rdflags |= RDF_NOMIRROR_WEAPON;
         cl.refdef.extended = cl.csr.extended;
 
         // sort entities for better cache locality

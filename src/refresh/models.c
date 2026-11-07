@@ -529,6 +529,23 @@ static int MOD_LoadMD2(model_t *model, const void *rawdata, size_t length)
     return Q_ERR_SUCCESS;
 }
 
+static byte BestNormalIndex(const vec3_t n)
+{
+    float best = -1.0f;
+    int best_idx = 0;
+
+    for (int i = 0; i < NUMVERTEXNORMALS; i++) {
+        float d = DotProduct(n, bytedirs[i]);
+        if (d > best) {
+            best = d;
+            best_idx = i;
+            if (d > 0.999f)
+                break;
+        }
+    }
+    return (byte)best_idx;
+}
+
 static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
                              const uint16_t *vert_index, const float *vert_s,
                              const float *vert_t, const byte *vert_obj,
@@ -614,6 +631,9 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
         mesh->tcoords[final_index[i]].st[1] = vert_t[i];
     }
 
+    byte *norm_indices = Z_Malloc(numverts * sizeof(byte));
+    bool *smoothed = Z_Malloc(numverts * sizeof(bool));
+
     src_frame = (const dmd2frame_t *)(rawdata + header->ofs_frames);
     for (j = 0; j < (int)header->num_frames; j++) {
         for (i = 0; i < numindices; i++) {
@@ -628,6 +648,7 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
             dst_vert->pos[1] = src_vert->v[1];
             dst_vert->pos[2] = src_vert->v[2];
             val = src_vert->lightnormalindex;
+            norm_indices[final_index[i]] = (byte)val;
             if (val >= NUMVERTEXNORMALS) {
                 dst_vert->norm[0] = 0;
                 dst_vert->norm[1] = 0;
@@ -636,9 +657,62 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
                 dst_vert->norm[1] = gl_static.latlngtab[val][1];
             }
         }
+
+        // Smooth coincident seam vertex normals across mesh
+        memset(smoothed, 0, numverts * sizeof(bool));
+        for (i = 0; i < numverts; i++) {
+            if (smoothed[i])
+                continue;
+            maliasvert_t *v1 = &mesh->verts[j * numverts + i];
+            byte nidx1 = norm_indices[i];
+            if (nidx1 >= NUMVERTEXNORMALS)
+                continue;
+
+            vec3_t avg_norm;
+            VectorCopy(bytedirs[nidx1], avg_norm);
+            int count = 1;
+
+            for (k = i + 1; k < numverts; k++) {
+                if (smoothed[k])
+                    continue;
+                maliasvert_t *v2 = &mesh->verts[j * numverts + k];
+                byte nidx2 = norm_indices[k];
+                if (nidx2 >= NUMVERTEXNORMALS)
+                    continue;
+
+                if (v1->pos[0] == v2->pos[0] &&
+                    v1->pos[1] == v2->pos[1] &&
+                    v1->pos[2] == v2->pos[2]) {
+                    VectorAdd(avg_norm, bytedirs[nidx2], avg_norm);
+                    count++;
+                }
+            }
+
+            if (count > 1) {
+                VectorNormalize(avg_norm);
+                byte best = BestNormalIndex(avg_norm);
+                v1->norm[0] = gl_static.latlngtab[best][0];
+                v1->norm[1] = gl_static.latlngtab[best][1];
+                smoothed[i] = true;
+
+                for (k = i + 1; k < numverts; k++) {
+                    maliasvert_t *v2 = &mesh->verts[j * numverts + k];
+                    if (v1->pos[0] == v2->pos[0] &&
+                        v1->pos[1] == v2->pos[1] &&
+                        v1->pos[2] == v2->pos[2]) {
+                        v2->norm[0] = gl_static.latlngtab[best][0];
+                        v2->norm[1] = gl_static.latlngtab[best][1];
+                        smoothed[k] = true;
+                    }
+                }
+            }
+        }
+
         src_frame = (const dmd2frame_t *)((const byte *)src_frame + header->framesize);
     }
 
+    Z_Free(norm_indices);
+    Z_Free(smoothed);
     Z_Free(remap);
     Z_Free(final_index);
     return Q_ERR_SUCCESS;
