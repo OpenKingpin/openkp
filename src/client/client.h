@@ -323,6 +323,13 @@ typedef struct {
     int hit_marker_count;
 
     player_fog_t custom_fog;
+
+    // Kingpin screen shake
+    struct {
+        float   intensity;
+        int     time;
+        int     duration;
+    } shake;
 } client_state_t;
 
 extern client_state_t   cl;
@@ -908,6 +915,12 @@ void CL_BubbleTrail(const vec3_t start, const vec3_t end);
 void CL_FlagTrail(centity_t *ent, const vec3_t end, int color);
 void CL_MuzzleFlash(void);
 void CL_MuzzleFlash2(void);
+void CL_MuzzleFlash3(void);
+void CL_AddScreenShake(float intensity, int duration);
+void CL_RocketTrailKP(centity_t *cent, const vec3_t end);
+void CL_RocketExplosionKP(const vec3_t org);
+void CL_BulletImpactKP(const vec3_t pos, const vec3_t dir, int type);
+void CL_BloodSpurtKP(const vec3_t pos, const vec3_t dir);
 void CL_TeleporterParticles(const vec3_t org);
 void CL_TeleportParticles(const vec3_t org);
 void CL_ParticleEffect(const vec3_t org, const vec3_t dir, int color, int count);

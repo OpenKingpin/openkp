@@ -218,46 +218,76 @@ void CL_MuzzleFlash(void)
         break;
     case MZ_MACHINEGUN:
         VectorSet(dl->color, 1, 1, 0);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+        else
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
         S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
         CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 29.0f, 9.7f, -8.0f }, 12.0f);
         break;
     case MZ_SHOTGUN:
         VectorSet(dl->color, 1, 1, 0);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/shotgf1b.wav"), volume, ATTN_NORM, 0);
-        S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/shotgr1b.wav"), volume, ATTN_NORM, 0.1f);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/shotgun/shotgf1b.wav"), volume, ATTN_NORM, 0);
+            S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/shotgun/shotgr1b.wav"), volume, ATTN_NORM, 0.1f);
+        } else {
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/shotgf1b.wav"), volume, ATTN_NORM, 0);
+            S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/shotgr1b.wav"), volume, ATTN_NORM, 0.1f);
+        }
         CL_AddWeaponMuzzleFX(MFLASH_SHOTG, (const vec3_t) { 26.5f, 8.6f, -9.5f }, 12.0f);
         break;
     case MZ_SSHOTGUN:
         VectorSet(dl->color, 1, 1, 0);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/sshotf1b.wav"), volume, ATTN_NORM, 0);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/shotgun/sshotf1b.wav"), volume, ATTN_NORM, 0);
+        else
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/sshotf1b.wav"), volume, ATTN_NORM, 0);
         CL_AddWeaponMuzzleFX(MFLASH_SHOTG2, (const vec3_t) { 25.0f, 7.0f, -5.5f }, 12.0f);
         break;
     case MZ_CHAINGUN1:
         dl->radius = 200 + (Q_rand() & 31);
         VectorSet(dl->color, 1, 0.25f, 0);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+        else
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
         S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
         CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 29.0f, 9.7f, -10.0f }, 12.0f);
         break;
     case MZ_CHAINGUN2:
         dl->radius = 225 + (Q_rand() & 31);
         VectorSet(dl->color, 1, 0.5f, 0);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.05f);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.05f);
+        } else {
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.05f);
+        }
         CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 29.0f, 9.7f, -10.0f }, 16.0f);
         break;
     case MZ_CHAINGUN3:
         dl->radius = 250 + (Q_rand() & 31);
         VectorSet(dl->color, 1, 1, 0);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.033f);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.066f);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.033f);
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machinegun/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.066f);
+        } else {
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.033f);
+            Q_snprintf(soundname, sizeof(soundname), "weapons/machgf%ib.wav", (Q_rand() % 5) + 1);
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0.066f);
+        }
         CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 29.0f, 9.7f, -10.0f }, 20.0f);
         break;
     case MZ_RAILGUN:
@@ -268,14 +298,22 @@ void CL_MuzzleFlash(void)
         break;
     case MZ_ROCKET:
         VectorSet(dl->color, 1, 0.5f, 0.2f);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/rocklf1a.wav"), volume, ATTN_NORM, 0);
-        S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/rocklr1b.wav"), volume, ATTN_NORM, 0.1f);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/rocket_launcher/rl_fire.wav"), volume, ATTN_NORM, 0);
+        } else {
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/rocklf1a.wav"), volume, ATTN_NORM, 0);
+            S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/rocklr1b.wav"), volume, ATTN_NORM, 0.1f);
+        }
         CL_AddWeaponMuzzleFX(MFLASH_ROCKET, (const vec3_t) { 20.8f, 5.0f, -11.0f }, 10.0f);
         break;
     case MZ_GRENADE:
         VectorSet(dl->color, 1, 0.5f, 0);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), volume, ATTN_NORM, 0);
-        S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/grenlr1b.wav"), volume, ATTN_NORM, 0.1f);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenade_launcher/gl_fire.wav"), volume, ATTN_NORM, 0);
+        } else {
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), volume, ATTN_NORM, 0);
+            S_StartSound(NULL, mz.entity, CHAN_AUTO,   S_RegisterSound("weapons/grenlr1b.wav"), volume, ATTN_NORM, 0.1f);
+        }
         CL_AddWeaponMuzzleFX(MFLASH_LAUNCH, (const vec3_t) { 18.0f, 6.0f, -6.5f }, 9.0f);
         break;
     case MZ_BFG:
@@ -289,18 +327,65 @@ void CL_MuzzleFlash(void)
 
     case MZ_LOGIN:
         VectorSet(dl->color, 0, 1, 0);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), 1, ATTN_NORM, 0);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("misc/tele1.wav"), 1, ATTN_NORM, 0);
+        else
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), 1, ATTN_NORM, 0);
         CL_LogoutEffect(pl->current.origin, 0xd0);  // green
         break;
     case MZ_LOGOUT:
         VectorSet(dl->color, 1, 0, 0);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), 1, ATTN_NORM, 0);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("misc/tele1.wav"), 1, ATTN_NORM, 0);
+        else
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), 1, ATTN_NORM, 0);
         CL_LogoutEffect(pl->current.origin, 0x40);  // red
         break;
     case MZ_RESPAWN:
         VectorSet(dl->color, 1, 1, 0);
-        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), 1, ATTN_NORM, 0);
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("misc/tele1.wav"), 1, ATTN_NORM, 0);
+        else
+            S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/grenlf1a.wav"), 1, ATTN_NORM, 0);
         CL_LogoutEffect(pl->current.origin, 0xe0);  // yellow
+        break;
+
+    case MZ_PISTOLA:
+        VectorSet(dl->color, 0.5f, 0.5f, 0.7f);
+        Q_snprintf(soundname, sizeof(soundname), "weapons/pistol/pistola%i.wav", (Q_rand() % 3) + 1);
+        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
+        CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 24.0f, 8.0f, -6.0f }, 8.0f);
+        break;
+    case MZ_PISTOLF:
+        VectorSet(dl->color, 0.5f, 0.5f, 0.5f);
+        Q_snprintf(soundname, sizeof(soundname), "weapons/pistol/pistolf%i.wav", (Q_rand() % 3) + 1);
+        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
+        CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 24.0f, 8.0f, -6.0f }, 8.0f);
+        break;
+    case MZ_SILENCER:
+        VectorSet(dl->color, 0.5f, 0.5f, 0.5f);
+        dl->radius = 100;
+        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/pistol/silencer.wav"), volume, ATTN_NORM, 0);
+        break;
+    case MZ_PIPE:
+        VectorSet(dl->color, 0.5f, 0.5f, 0.5f);
+        dl->radius = 60;
+        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/melee/swing.wav"), volume, ATTN_NORM, 0);
+        break;
+    case MZ_CROWBAR:
+        VectorSet(dl->color, 0.5f, 0.5f, 0.7f);
+        dl->radius = 60;
+        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/melee/swing.wav"), volume, ATTN_NORM, 0);
+        break;
+    case MZ_HMG:
+        VectorSet(dl->color, 1.0f, 0.8f, 0.3f);
+        dl->radius = 240 + (Q_rand() & 31);
+        S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("weapons/hmg/hmg.wav"), volume, ATTN_NORM, 0);
+        CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 30.0f, 9.0f, -8.0f }, 14.0f);
+        break;
+    case MZ_HMG_SIL:
+        VectorSet(dl->color, 0.5f, 0.5f, 0.5f);
+        dl->radius = 100;
         break;
     case MZ_PHALANX:
         VectorSet(dl->color, 1, 0.5f, 0.5f);
@@ -888,6 +973,46 @@ void CL_MuzzleFlash2(void)
         VectorSet(dl->color, 1, 0.5f, 0);
         S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound("guncmdr/gcdratck3.wav"), 1, ATTN_NORM, 0);
         CL_AddMuzzleFX(flash_origin, ent->current.angles, MFLASH_LAUNCH, 0, 18.0f * scale);
+        break;
+    }
+}
+
+/*
+==============
+CL_MuzzleFlash3
+==============
+*/
+void CL_MuzzleFlash3(void)
+{
+    cdlight_t   *dl;
+    centity_t   *pl;
+
+    if (mz.entity < 1 || mz.entity >= cl.csr.max_edicts)
+        return;
+
+    pl = &cl_entities[mz.entity];
+
+    dl = CL_AllocDlight(mz.entity);
+    VectorCopy(pl->current.origin, dl->origin);
+    dl->radius = 160 + (Q_rand() & 31);
+    dl->die = cl.time + 60;
+    VectorSet(dl->color, 1.0f, 1.0f, 1.0f);
+
+    switch (mz.weapon) {
+    case MZ3_LEADHIT_METAL:
+    {
+        const char *tinsnd;
+        vec3_t up = { 0, 0, 1 };
+        switch (Q_rand() % 3) {
+        case 0: tinsnd = "weapons/bullethit_tin.wav"; break;
+        case 1: tinsnd = "weapons/bullethit_tin2.wav"; break;
+        default: tinsnd = "weapons/bullethit_tin3.wav"; break;
+        }
+        S_StartSound(NULL, mz.entity, CHAN_BODY, S_RegisterSound(tinsnd), 1.0f, ATTN_NORM, 0);
+        CL_BulletImpactKP(pl->current.origin, up, TE_METAL_SPARKS);
+        break;
+    }
+    default:
         break;
     }
 }
@@ -1799,6 +1924,497 @@ void CL_AddParticles(void)
 
     active_particles = active;
 }
+
+/*
+===============
+CL_AddScreenShake
+===============
+*/
+void CL_AddScreenShake(float intensity, int duration)
+{
+    if (duration <= 0 || intensity <= 0.0f)
+        return;
+
+    if (cl.shake.intensity <= intensity || (cl.time - cl.shake.time) >= cl.shake.duration) {
+        cl.shake.intensity = intensity;
+        cl.shake.time = cl.time;
+        cl.shake.duration = duration;
+    }
+}
+
+/*
+===============
+CL_RocketTrailKP
+
+Bazooka rocket trail: thick smoke puffs with buoyancy and trailing exhaust sparks.
+===============
+*/
+void CL_RocketTrailKP(centity_t *cent, const vec3_t end)
+{
+    vec3_t move, vec;
+    int count, i, j;
+    cparticle_t *p;
+    const float dec = 2.0f;
+
+    VectorSubtract(end, cent->lerp_origin, vec);
+    count = (int)(VectorNormalize(vec) / dec);
+    if (!count)
+        return;
+
+    VectorCopy(cent->lerp_origin, move);
+    VectorScale(vec, dec, vec);
+
+    for (i = 0; i < count; i++) {
+        // Smoke puff
+        if ((Q_rand() & 3) == 0) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            uint8_t c = 110 + (Q_rand() & 63);
+            p->rgba.u32 = MakeColor(c, c, c, 180);
+            p->scale = 1.4f + frand() * 1.2f;
+            p->alpha = 0.75f;
+            p->alphavel = -1.0f / (0.7f + frand() * 0.4f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = move[j] + crand() * 2.5f;
+                p->vel[j] = crand() * 4.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = 25.0f; // rising buoyancy
+        }
+
+        // Exhaust spark
+        if ((Q_rand() & 7) == 0) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(255, 140 + (Q_rand() & 95), 30, 255);
+            p->scale = 0.9f + frand() * 0.4f;
+            p->alpha = 1.0f;
+            p->alphavel = -1.0f / (0.25f + frand() * 0.2f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = move[j] + crand() * 2.0f;
+                p->vel[j] = crand() * 15.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = -PARTICLE_GRAVITY;
+        }
+
+        VectorAdd(move, vec, move);
+    }
+
+    VectorCopy(move, cent->lerp_origin);
+}
+
+/*
+===============
+CL_RocketExplosionKP
+
+Bazooka rocket / concussion explosion: fireball core, rising black smoke,
+radial sparks, debris shrapnel, screen shake, and dynamic light.
+===============
+*/
+void CL_RocketExplosionKP(const vec3_t org)
+{
+    cdlight_t *dl;
+    cparticle_t *p;
+    vec3_t diff;
+    float dist;
+    int i, j;
+
+    // Dynamic light
+    dl = CL_AllocDlight(0);
+    VectorCopy(org, dl->origin);
+    dl->radius = 350.0f;
+    VectorSet(dl->color, 1.0f, 0.6f, 0.2f);
+    dl->die = cl.time + 300;
+
+    // Screen shake based on distance to player view
+    VectorSubtract(org, cl.refdef.vieworg, diff);
+    dist = VectorLength(diff);
+    if (dist < 800.0f) {
+        float factor = 1.0f - (dist / 800.0f);
+        CL_AddScreenShake(factor * 9.0f, 400);
+    }
+
+    // Play explosion sound
+    S_StartSound(org, 0, 0, S_RegisterSound("world/explosion1.wav"), 1, ATTN_NORM, 0);
+
+    // 1. Central fireball core
+    for (i = 0; i < 25; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(255, 150 + (Q_rand() & 80), 20, 255);
+        p->scale = 2.5f + frand() * 2.0f;
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.35f + frand() * 0.25f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = org[j] + crand() * 6.0f;
+            p->vel[j] = crand() * 70.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = 10.0f;
+    }
+
+    // 2. Rising dark smoke cloud
+    for (i = 0; i < 35; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        uint8_t c = 40 + (Q_rand() & 40);
+        p->rgba.u32 = MakeColor(c, c, c, 210);
+        p->scale = 2.0f + frand() * 2.0f;
+        p->alpha = 0.85f;
+        p->alphavel = -1.0f / (0.9f + frand() * 0.5f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = org[j] + crand() * 12.0f;
+            p->vel[j] = crand() * 25.0f;
+        }
+        p->vel[2] = 20.0f + frand() * 30.0f;
+        VectorClear(p->accel);
+        p->accel[2] = 30.0f; // thermal rise
+    }
+
+    // 3. High-speed radial sparks
+    for (i = 0; i < 40; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(255, 200 + (Q_rand() & 55), 50, 255);
+        p->scale = 1.0f;
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.45f + frand() * 0.35f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = org[j] + crand() * 4.0f;
+            p->vel[j] = crand() * 190.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = -PARTICLE_GRAVITY * 1.5f;
+    }
+
+    // 4. Shrapnel / debris chunks
+    for (i = 0; i < 15; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(70, 65, 60, 255);
+        p->scale = 1.6f + frand() * 0.8f;
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.8f + frand() * 0.4f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = org[j] + crand() * 8.0f;
+            p->vel[j] = crand() * 130.0f;
+        }
+        p->vel[2] = 40.0f + frand() * 100.0f;
+        VectorClear(p->accel);
+        p->accel[2] = -PARTICLE_GRAVITY * 2.0f;
+    }
+}
+
+/*
+===============
+CL_BloodSpurtKP
+
+Kingpin visceral blood droplets and fine mist spray.
+===============
+*/
+void CL_BloodSpurtKP(const vec3_t pos, const vec3_t dir)
+{
+    cparticle_t *p;
+    vec3_t d;
+    int i, j;
+
+    if (VectorLength(dir) < 0.1f) {
+        VectorSet(d, 0, 0, 1.0f);
+    } else {
+        VectorCopy(dir, d);
+        VectorNormalize(d);
+    }
+
+    // Droplets
+    for (i = 0; i < 35; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        uint8_t red = 140 + (Q_rand() & 85);
+        p->rgba.u32 = MakeColor(red, 5 + (Q_rand() & 15), 5 + (Q_rand() & 15), 240);
+        p->scale = 1.0f + frand() * 0.8f;
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.5f + frand() * 0.4f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = pos[j] + crand() * 2.0f;
+            p->vel[j] = d[j] * (35.0f + frand() * 55.0f) + crand() * 25.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = -PARTICLE_GRAVITY * 2.0f;
+    }
+
+    // Fine mist
+    for (i = 0; i < 12; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(120, 0, 0, 170);
+        p->scale = 2.0f + frand() * 1.5f;
+        p->alpha = 0.7f;
+        p->alphavel = -1.0f / (0.35f + frand() * 0.25f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = pos[j] + crand() * 3.0f;
+            p->vel[j] = d[j] * 15.0f + crand() * 12.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = -PARTICLE_GRAVITY * 0.5f;
+    }
+}
+
+/*
+===============
+CL_BulletImpactKP
+
+Surface-dependent bullet impact FX: metal sparks & tin sound, wood splinters,
+concrete dust puffs, water splashes.
+===============
+*/
+extern mtexinfo_t nulltexinfo;
+
+void CL_BulletImpactKP(const vec3_t pos, const vec3_t dir, int type)
+{
+    vec3_t d, start, end;
+    trace_t tr;
+    int surf_flags = 0;
+    const char *texname = "";
+    cparticle_t *p;
+    int i, j;
+
+    if (VectorLength(dir) < 0.1f) {
+        VectorSet(d, 0, 0, 1.0f);
+    } else {
+        VectorCopy(dir, d);
+        VectorNormalize(d);
+    }
+
+    // Trace back along normal into surface to identify material
+    VectorMA(pos, 2.0f, d, start);
+    VectorMA(pos, -4.0f, d, end);
+    CL_Trace(&tr, start, end, vec3_origin, vec3_origin, MASK_SOLID | MASK_WATER);
+
+    if (tr.surface && tr.surface != &(nulltexinfo.c)) {
+        surf_flags = tr.surface->flags;
+        texname = tr.surface->name;
+    }
+
+    bool is_water = (surf_flags & SURF_WATER) || (tr.contents & MASK_WATER) ||
+                    (strstr(texname, "water") != NULL);
+    bool is_metal = (type == TE_METAL_SPARKS) ||
+                    (surf_flags & (SURF_METAL | SURF_METAL_L)) ||
+                    (strstr(texname, "metal") != NULL) ||
+                    (strstr(texname, "iron") != NULL) ||
+                    (strstr(texname, "tin") != NULL) ||
+                    (strstr(texname, "grate") != NULL) ||
+                    (strstr(texname, "steel") != NULL);
+    bool is_wood = (surf_flags & SURF_WOOD) ||
+                   (strstr(texname, "wood") != NULL) ||
+                   (strstr(texname, "crate") != NULL) ||
+                   (strstr(texname, "plank") != NULL) ||
+                   (strstr(texname, "board") != NULL);
+
+    if (is_water) {
+        // Water splash
+        S_StartSound(pos, 0, 0, S_RegisterSound("weapons/xpld_wat.wav"), 1, ATTN_NORM, 0);
+        for (i = 0; i < 24; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(180, 210, 240, 200);
+            p->scale = 1.2f + frand() * 0.8f;
+            p->alpha = 0.9f;
+            p->alphavel = -1.0f / (0.5f + frand() * 0.3f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = pos[j] + crand() * 2.0f;
+                p->vel[j] = d[j] * 50.0f + crand() * 25.0f;
+            }
+            p->vel[2] += 30.0f;
+            VectorClear(p->accel);
+            p->accel[2] = -PARTICLE_GRAVITY * 2.0f;
+        }
+        return;
+    }
+
+    if (is_metal) {
+        // Metal impact: tin sound + bright bouncing sparks + small flash dlight
+        static const char *const tin_sounds[] = {
+            "weapons/bullethit_tin.wav",
+            "weapons/bullethit_tin2.wav",
+            "weapons/bullethit_tin3.wav"
+        };
+        int s = Q_rand() % 3;
+        S_StartSound(pos, 0, 0, S_RegisterSound(tin_sounds[s]), 1, ATTN_NORM, 0);
+
+        // Flash dlight
+        cdlight_t *dl = CL_AllocDlight(0);
+        VectorCopy(pos, dl->origin);
+        dl->radius = 60.0f;
+        VectorSet(dl->color, 1.0f, 0.9f, 0.5f);
+        dl->die = cl.time + 40;
+
+        // Bright bouncing sparks
+        for (i = 0; i < 25; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(255, 210 + (Q_rand() & 45), 80 + (Q_rand() & 120), 255);
+            p->scale = 0.9f + frand() * 0.5f;
+            p->alpha = 1.0f;
+            p->alphavel = -1.0f / (0.35f + frand() * 0.25f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = pos[j] + crand() * 1.5f;
+                p->vel[j] = d[j] * (90.0f + frand() * 110.0f) + crand() * 70.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = -PARTICLE_GRAVITY * 2.0f;
+        }
+
+        // Wispy smoke
+        for (i = 0; i < 4; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(160, 160, 160, 140);
+            p->scale = 1.5f + frand() * 0.8f;
+            p->alpha = 0.6f;
+            p->alphavel = -1.0f / (0.4f + frand() * 0.2f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = pos[j] + crand() * 2.0f;
+                p->vel[j] = d[j] * 12.0f + crand() * 8.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = 15.0f;
+        }
+        return;
+    }
+
+    if (is_wood) {
+        // Wood impact: splinters & chips + sawdust
+        int r = Q_rand() & 7;
+        if (r == 1)
+            S_StartSound(pos, 0, 0, S_RegisterSound("weapons/ric1.wav"), 1, ATTN_NORM, 0);
+        else if (r == 2)
+            S_StartSound(pos, 0, 0, S_RegisterSound("weapons/ric2.wav"), 1, ATTN_NORM, 0);
+        else if (r == 3)
+            S_StartSound(pos, 0, 0, S_RegisterSound("weapons/ric3.wav"), 1, ATTN_NORM, 0);
+
+        // Splinters
+        for (i = 0; i < 18; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(160 + (Q_rand() & 40), 105 + (Q_rand() & 30), 55 + (Q_rand() & 20), 255);
+            p->scale = 1.2f + frand() * 0.7f;
+            p->alpha = 1.0f;
+            p->alphavel = -1.0f / (0.55f + frand() * 0.35f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = pos[j] + crand() * 1.5f;
+                p->vel[j] = d[j] * (50.0f + frand() * 70.0f) + crand() * 35.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = -PARTICLE_GRAVITY * 1.8f;
+        }
+
+        // Sawdust puff
+        for (i = 0; i < 7; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(190, 160, 115, 160);
+            p->scale = 1.6f + frand() * 1.0f;
+            p->alpha = 0.65f;
+            p->alphavel = -1.0f / (0.45f + frand() * 0.25f);
+            for (j = 0; j < 3; j++) {
+                p->org[j] = pos[j] + crand() * 2.0f;
+                p->vel[j] = d[j] * 18.0f + crand() * 12.0f;
+            }
+            VectorClear(p->accel);
+            p->accel[2] = 10.0f;
+        }
+        return;
+    }
+
+    // Default: Concrete, stone, brick, plaster
+    int r = Q_rand() & 7;
+    if (r == 1)
+        S_StartSound(pos, 0, 0, S_RegisterSound("weapons/ric1.wav"), 1, ATTN_NORM, 0);
+    else if (r == 2)
+        S_StartSound(pos, 0, 0, S_RegisterSound("weapons/ric2.wav"), 1, ATTN_NORM, 0);
+    else if (r == 3)
+        S_StartSound(pos, 0, 0, S_RegisterSound("weapons/ric3.wav"), 1, ATTN_NORM, 0);
+
+    // Dust puffs
+    for (i = 0; i < 20; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        uint8_t c = 170 + (Q_rand() & 40);
+        p->rgba.u32 = MakeColor(c, c, c - 5, 180);
+        p->scale = 1.6f + frand() * 1.2f;
+        p->alpha = 0.75f;
+        p->alphavel = -1.0f / (0.45f + frand() * 0.3f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = pos[j] + crand() * 2.0f;
+            p->vel[j] = d[j] * (25.0f + frand() * 45.0f) + crand() * 20.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = -PARTICLE_GRAVITY * 0.6f;
+    }
+
+    // Small stone debris/pebbles
+    for (i = 0; i < 8; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(120, 115, 110, 255);
+        p->scale = 1.0f + frand() * 0.5f;
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.5f + frand() * 0.3f);
+        for (j = 0; j < 3; j++) {
+            p->org[j] = pos[j] + crand() * 1.0f;
+            p->vel[j] = d[j] * (70.0f + frand() * 50.0f) + crand() * 40.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = -PARTICLE_GRAVITY * 2.0f;
+    }
+}
+
 
 
 /*
