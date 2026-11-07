@@ -1201,11 +1201,16 @@ static void CL_AddPacketEntities(void)
                 CL_DiminishingTrail(cent, ent.origin, DT_FIREBALL);
                 has_trail = true;
             } else if (!(cl_disable_particles->integer & NOPART_ROCKET_TRAIL)) {
-                CL_DiminishingTrail(cent, ent.origin, DT_ROCKET);
+                if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                    CL_RocketTrailKP(cent, ent.origin);
+                else
+                    CL_DiminishingTrail(cent, ent.origin, DT_ROCKET);
                 has_trail = true;
             }
             if (cl_dlight_hacks->integer & DLHACK_ROCKET_COLOR)
                 V_AddLight(ent.origin, 200, 1, 0.23f, 0);
+            else if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+                V_AddLight(ent.origin, 200, 1.0f, 0.5f, 0.2f);
             else
                 V_AddLight(ent.origin, 200, 1, 1, 0);
         } else if (effects & EF_BLASTER) {
@@ -1703,6 +1708,18 @@ void CL_CalcViewValues(void)
     } else {
         // just use interpolated values
         LerpAngles(ops->viewangles, ps->viewangles, lerp, cl.refdef.viewangles);
+    }
+
+    // apply screen shake to view angles if active
+    if (cl.shake.intensity > 0.0f && cl.shake.duration > 0 && cl.time < cl.shake.time + cl.shake.duration) {
+        float frac = 1.0f - (float)(cl.time - cl.shake.time) / (float)cl.shake.duration;
+        if (frac > 0.0f) {
+            float cur = cl.shake.intensity * frac;
+            float freq = (float)(cl.time - cl.shake.time) * 0.04f;
+            cl.refdef.viewangles[PITCH] += sinf(freq * 1.3f) * cur * 0.7f;
+            cl.refdef.viewangles[YAW]   += cosf(freq * 1.1f) * cur * 0.5f;
+            cl.refdef.viewangles[ROLL]  += sinf(freq * 0.9f) * cur * 0.4f;
+        }
     }
 
     // interpolate blend

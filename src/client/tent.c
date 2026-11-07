@@ -403,16 +403,28 @@ void CL_RegisterTEntSounds(void)
     cl_kp_pistol_clip = S_RegisterSound("weapons/pistol/clip_in.wav");
     cl_kp_rocket_reload = S_RegisterSound("weapons/rocket_launcher/reload.wav");
     cl_kp_grenade_reload = S_RegisterSound("weapons/grenade_launcher/reload.wav");
-    cl_sfx_ric1 = S_RegisterSound("world/ric1.wav");
-    cl_sfx_ric2 = S_RegisterSound("world/ric2.wav");
-    cl_sfx_ric3 = S_RegisterSound("world/ric3.wav");
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        cl_sfx_ric1 = S_RegisterSound("weapons/ric1.wav");
+        cl_sfx_ric2 = S_RegisterSound("weapons/ric2.wav");
+        cl_sfx_ric3 = S_RegisterSound("weapons/ric3.wav");
+        cl_sfx_rockexp = S_RegisterSound("world/explosion1.wav");
+        cl_sfx_grenexp = S_RegisterSound("world/explosion2.wav");
+        S_RegisterSound("weapons/bullethit_tin.wav");
+        S_RegisterSound("weapons/bullethit_tin2.wav");
+        S_RegisterSound("weapons/bullethit_tin3.wav");
+    } else {
+        cl_sfx_ric1 = S_RegisterSound("world/ric1.wav");
+        cl_sfx_ric2 = S_RegisterSound("world/ric2.wav");
+        cl_sfx_ric3 = S_RegisterSound("world/ric3.wav");
+        cl_sfx_rockexp = S_RegisterSound("weapons/rocklx1a.wav");
+        cl_sfx_grenexp = S_RegisterSound("weapons/grenlx1a.wav");
+    }
     cl_sfx_lashit = S_RegisterSound("weapons/lashit.wav");
     cl_sfx_spark5 = S_RegisterSound("world/spark5.wav");
     cl_sfx_spark6 = S_RegisterSound("world/spark6.wav");
     cl_sfx_spark7 = S_RegisterSound("world/spark7.wav");
     cl_sfx_railg = S_RegisterSound("weapons/railgf1a.wav");
-    cl_sfx_rockexp = S_RegisterSound("weapons/rocklx1a.wav");
-    cl_sfx_grenexp = S_RegisterSound("weapons/grenlx1a.wav");
     cl_sfx_watrexp = S_RegisterSound("weapons/xpld_wat.wav");
 
     S_RegisterSound("player/land1.wav");
@@ -1420,6 +1432,10 @@ void CL_ParseTEnt(void)
 
     switch (te.type) {
     case TE_BLOOD:          // bullet hitting flesh
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_BloodSpurtKP(te.pos1, te.dir);
+            break;
+        }
         if (!(cl_disable_particles->integer & NOPART_BLOOD))
             CL_ParticleEffect(te.pos1, te.dir, 0xe8, 60);
         break;
@@ -1427,18 +1443,28 @@ void CL_ParseTEnt(void)
     case TE_GUNSHOT:            // bullet hitting wall
     case TE_SPARKS:
     case TE_BULLET_SPARKS:
+    case TE_SHOTGUN:
+    case TE_METAL_SPARKS:
+    case TE_IMPACT:
+    case TE_IMPACT_CONCUSSION:
         if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
-            CL_ParticleEffect(te.pos1, te.dir, 0xdf, (te.type == TE_GUNSHOT) ? 30 : 6);
-        } else {
-            if (te.type == TE_GUNSHOT)
-                CL_ParticleEffect(te.pos1, te.dir, 0, 40);
-            else
-                CL_ParticleEffect(te.pos1, te.dir, 0xe0, 6);
+            CL_BulletImpactKP(te.pos1, te.dir, te.type);
+            break;
         }
 
+        if (te.type == TE_SHOTGUN) {
+            CL_ParticleEffect(te.pos1, te.dir, 0, 20);
+            CL_SmokeAndFlash(te.pos1);
+            break;
+        }
+
+        if (te.type == TE_GUNSHOT)
+            CL_ParticleEffect(te.pos1, te.dir, 0, 40);
+        else
+            CL_ParticleEffect(te.pos1, te.dir, 0xe0, 6);
+
         if (te.type != TE_SPARKS) {
-            if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN)
-                CL_SmokeAndFlash(te.pos1);
+            CL_SmokeAndFlash(te.pos1);
 
             // impact sound
             r = Q_rand() & 15;
@@ -1459,15 +1485,6 @@ void CL_ParseTEnt(void)
             CL_ParticleEffect(te.pos1, te.dir, 0xb0, 40);
         //FIXME : replace or remove this sound
         S_StartSound(te.pos1, 0, 257, cl_sfx_lashit, 1, ATTN_NORM, 0);
-        break;
-
-    case TE_SHOTGUN:            // bullet hitting wall
-        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
-            CL_ParticleEffect(te.pos1, te.dir, 0xdf, 30);
-        } else {
-            CL_ParticleEffect(te.pos1, te.dir, 0, 20);
-            CL_SmokeAndFlash(te.pos1);
-        }
         break;
 
     case TE_SPLASH:         // bullet hitting water
@@ -1577,6 +1594,13 @@ void CL_ParseTEnt(void)
 
     case TE_ROCKET_EXPLOSION:
     case TE_ROCKET_EXPLOSION_WATER:
+    case TE_CONCUSSION_EXPLOSION:
+    case TE_CONCUSSION_EXPLOSION_WATER:
+    case TE_CONCUSSION_EXPLOSION_BIG:
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            CL_RocketExplosionKP(te.pos1);
+            break;
+        }
         ex = CL_PlainExplosion();
         if (cl_disable_explosions->integer & NOEXP_ROCKET)
             ex->type = ex_light;
@@ -1587,7 +1611,7 @@ void CL_ParseTEnt(void)
         if (cl_dlight_hacks->integer & DLHACK_SMALLER_EXPLOSION)
             ex->light = 200;
 
-        if (te.type == TE_ROCKET_EXPLOSION_WATER)
+        if (te.type == TE_ROCKET_EXPLOSION_WATER || te.type == TE_CONCUSSION_EXPLOSION_WATER)
             S_StartSound(te.pos1, 0, 0, cl_sfx_watrexp, 1, ATTN_NORM, 0);
         else
             S_StartSound(te.pos1, 0, 0, cl_sfx_rockexp, 1, ATTN_NORM, 0);

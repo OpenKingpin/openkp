@@ -770,59 +770,96 @@ static void kp_read_pos_dir(void)
 static void CL_ParseKingpinTEnt(int type)
 {
     switch (type) {
-    case 0:     // gunshot
-    case 1:     // gunshot visible
-    case 5:     // shotgun
-    case 10:    // metal sparks
-    case 11:    // sparks
-    case 14:    // screen sparks
-    case 15:    // shield sparks
-    case 16:    // bullet sparks
-    case 52:    // impact concussion
+    case TE_KP_GUNSHOT:
+    case TE_KP_GUNSHOT_VISIBLE:
         kp_read_pos_dir();
         te.type = TE_GUNSHOT;
         break;
 
-    case 2:     // blood: position, then a damage byte. Not a direction.
+    case TE_KP_SHOTGUN:
+        kp_read_pos_dir();
+        te.type = TE_SHOTGUN;
+        break;
+
+    case TE_KP_METAL_SPARKS:
+        kp_read_pos_dir();
+        te.type = TE_METAL_SPARKS;
+        break;
+
+    case TE_KP_SPARKS:
+    case TE_KP_BULLET_SPARKS:
+        kp_read_pos_dir();
+        te.type = TE_BULLET_SPARKS;
+        break;
+
+    case TE_KP_SCREEN_SPARKS:
+    case TE_KP_SHIELD_SPARKS:
+        kp_read_pos_dir();
+        te.type = (type == TE_KP_SCREEN_SPARKS) ? TE_SCREEN_SPARKS : TE_SHIELD_SPARKS;
+        break;
+
+    case TE_KP_IMPACT:
+    case TE_KP_IMPACT_CONCUSSION:
+        kp_read_pos_dir();
+        te.type = (type == TE_KP_IMPACT_CONCUSSION) ? TE_IMPACT_CONCUSSION : TE_IMPACT;
+        break;
+
+    case TE_KP_BLOOD:     // blood: position, then a damage byte. Not a direction.
         CL_ReadPos(te.pos1);
         MSG_ReadByte();
         VectorClear(te.dir);
         te.type = TE_BLOOD;
         break;
 
-    case 28:    // green blood
+    case TE_KP_BLOOD_DRIP:
+    case TE_KP_BLOOD_SPLAT:
+    case TE_KP_BLOOD_POOL:
+        CL_ReadPos(te.pos1);
+        MSG_ReadDir(te.dir);
+        te.type = TE_BLOOD;
+        break;
+
+    case TE_KP_GREENBLOOD:
         kp_read_pos_dir();
         te.type = TE_BLOOD;
         break;
 
-    case 3:     // blaster
-    case 29:    // blue hyperblaster
+    case TE_KP_BLASTER:
+    case TE_KP_BLUEHYPERBLASTER:
         kp_read_pos_dir();
         te.type = TE_BLASTER;
         break;
 
-    case 4:     // railtrail, plus a direction Quake II does not write
+    case TE_KP_RAILTRAIL:     // railtrail, plus a direction Quake II does not write
         CL_ReadPos(te.pos1);
         CL_ReadPos(te.pos2);
         MSG_ReadDir(te.dir);
         te.type = TE_RAILTRAIL;
         break;
 
-    case 7:     // explosion2
-    case 8:     // rocket explosion
-    case 9:     // grenade explosion
-    case 19:    // rocket explosion water
-    case 20:    // grenade explosion water
-    case 22:    // bfg explosion
-    case 23:    // bfg big explosion
-    case 24:    // boss teleport
-    case 30:    // plasma explosion
-    case 44:    // burn to a crisp
+    case TE_KP_ROCKET_EXPLOSION:
+    case TE_KP_ROCKET_EXPLOSION_WATER:
         CL_ReadPos(te.pos1);
-        te.type = (type == 9 || type == 20) ? TE_GRENADE_EXPLOSION : TE_EXPLOSION1;
+        te.type = (type == TE_KP_ROCKET_EXPLOSION_WATER) ? TE_ROCKET_EXPLOSION_WATER : TE_ROCKET_EXPLOSION;
         break;
 
-    case 12:    // splash
+    case TE_KP_GRENADE_EXPLOSION:
+    case TE_KP_GRENADE_EXPLOSION_WATER:
+        CL_ReadPos(te.pos1);
+        te.type = (type == TE_KP_GRENADE_EXPLOSION_WATER) ? TE_GRENADE_EXPLOSION_WATER : TE_GRENADE_EXPLOSION;
+        break;
+
+    case TE_KP_EXPLOSION2:
+    case TE_KP_BFG_EXPLOSION:
+    case TE_KP_BFG_BIGEXPLOSION:
+    case TE_KP_BOSSTPORT:
+    case TE_KP_PLASMA_EXPLOSION:
+    case TE_KP_BURN_TO_A_CRISP:
+        CL_ReadPos(te.pos1);
+        te.type = TE_EXPLOSION1;
+        break;
+
+    case TE_KP_SPLASH:
         te.count = MSG_ReadByte();
         CL_ReadPos(te.pos1);
         MSG_ReadDir(te.dir);
@@ -830,16 +867,16 @@ static void CL_ParseKingpinTEnt(int type)
         te.type = TE_SPLASH;
         break;
 
-    case 13:    // bubble trail
-    case 25:    // bfg laser
+    case TE_KP_BUBBLETRAIL:
+    case TE_KP_BFG_LASER:
         CL_ReadPos(te.pos1);
         CL_ReadPos(te.pos2);
-        te.type = (type == 25) ? TE_BFG_LASER : TE_BUBBLETRAIL;
+        te.type = (type == TE_KP_BFG_LASER) ? TE_BFG_LASER : TE_BUBBLETRAIL;
         break;
 
-    case 17:    // laser sparks
-    case 27:    // welding sparks
-    case 31:    // tunnel sparks
+    case TE_KP_LASER_SPARKS:
+    case TE_KP_WELDING_SPARKS:
+    case TE_KP_TUNNEL_SPARKS:
         te.count = MSG_ReadByte();
         CL_ReadPos(te.pos1);
         MSG_ReadDir(te.dir);
@@ -907,13 +944,15 @@ static void CL_ParseKingpinTEnt(int type)
         te.type = TE_EXPLOSION1;
         break;
 
-    case 45:    // concussion
-    case 46:    // concussion water
-    case 56:    // concussion big
+    case TE_KP_CONCUSSION_EXPLOSION:        // concussion (bazooka)
+    case TE_KP_CONCUSSION_EXPLOSION_WATER:  // concussion water
+    case TE_KP_CONCUSSION_EXPLOSION_BIG:    // concussion big (grenade)
         CL_ReadPos(te.pos1);
         MSG_ReadDir(te.dir);
-        MSG_ReadByte();
-        te.type = TE_ROCKET_EXPLOSION;
+        te.count = MSG_ReadByte();
+        te.type = (type == TE_KP_CONCUSSION_EXPLOSION_WATER) ? TE_CONCUSSION_EXPLOSION_WATER :
+                  (type == TE_KP_CONCUSSION_EXPLOSION_BIG)   ? TE_CONCUSSION_EXPLOSION_BIG :
+                                                               TE_CONCUSSION_EXPLOSION;
         break;
 
     case 50:    // steam: position, direction, five parameter bytes
@@ -1137,7 +1176,7 @@ static void CL_ParseMuzzleFlashPacket(int mask)
     if (entity < 1 || entity >= cl.csr.max_edicts)
         Com_Error(ERR_DROP, "%s: bad entity", __func__);
 
-    if (!mask && weapon >= q_countof(monster_flash_offset))
+    if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && !mask && weapon >= q_countof(monster_flash_offset))
         Com_Error(ERR_DROP, "%s: bad weapon", __func__);
 
     mz.silenced = weapon & mask;
@@ -1621,8 +1660,8 @@ void CL_ParseServerMessage(void)
             break;
 
         case svc_muzzleflash3:
-            MSG_ReadShort();
-            MSG_ReadByte();
+            CL_ParseMuzzleFlashPacket(0);
+            CL_MuzzleFlash3();
             break;
 
         case svc_hud:
@@ -1787,8 +1826,8 @@ bool CL_SeekDemoMessage(void)
             break;
 
         case svc_muzzleflash3:
-            MSG_ReadShort();
-            MSG_ReadByte();
+            CL_ParseMuzzleFlashPacket(0);
+            CL_MuzzleFlash3();
             break;
 
         case svc_hud:
