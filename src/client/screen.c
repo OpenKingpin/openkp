@@ -1747,6 +1747,9 @@ static void HUD_DrawKingpinBagCash(void)
 
 static void HUD_DrawKingpinIcon(int stat, int x, int y)
 {
+    if (stat < 0 || stat >= MAX_STATS)
+        return;
+
     int index = cl.frame.ps.stats[stat];
     qhandle_t pic;
     int w, h;
@@ -2238,7 +2241,7 @@ static void SCR_ExecuteLayoutString(const char *s)
                 color = ((cl.frame.number / CL_FRAMEDIV) >> 2) & 1 ? 3 : 4;
             if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
                 if (cl.frame.ps.stats[STAT_KP_CLIP_ICON] > 0)
-                    HUD_DrawKingpinIcon(cl.frame.ps.stats[STAT_KP_CLIP_ICON], scr.hud_width - 25, scr.hud_height - 50);
+                    HUD_DrawKingpinIcon(STAT_KP_CLIP_ICON, scr.hud_width - 25, scr.hud_height - 50);
                 HUD_DrawNumber(scr.hud_width - 60, scr.hud_height - 50, color, 3, value);
             } else {
                 HUD_DrawNumber(x, y, color, 3, value);
@@ -2334,11 +2337,9 @@ static void SCR_ExecuteLayoutString(const char *s)
             if (client_num >= 0 && client_num < MAX_CLIENTS) {
                 ci = &cl.clientinfo[client_num];
                 const char *src_name = ci->name[0] ? ci->name : "(unknown)";
+                size_t src_len = strlen(src_name);
                 for (int i = 0; i < 13; i++) {
-                    if (src_name[i])
-                        name[i] = src_name[i];
-                    else
-                        name[i] = ' ';
+                    name[i] = (i < src_len) ? src_name[i] : ' ';
                 }
                 name[13] = '\0';
             } else {

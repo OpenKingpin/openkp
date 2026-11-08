@@ -284,11 +284,16 @@ static const char *Sys_DetectKingpinDir(void)
 
     // 5. Prompt user if graphical display is available
     if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
-        FILE *p = popen("zenity --file-selection --directory --title=\"Select Kingpin Installation Folder (containing main/)\" 2>/dev/null", "r");
-        if (!p) {
-            p = popen("kdialog --getexistingdirectory \"$HOME\" --title \"Select Kingpin Installation Folder (containing main/)\" 2>/dev/null", "r");
-        }
-        if (p) {
+        static const char *const dialog_cmds[] = {
+            "zenity --file-selection --directory --title=\"Select Kingpin Installation Folder (containing main/)\" 2>/dev/null",
+            "kdialog --getexistingdirectory \"$HOME\" --title \"Select Kingpin Installation Folder (containing main/)\" 2>/dev/null",
+            NULL
+        };
+
+        for (int i = 0; dialog_cmds[i]; i++) {
+            FILE *p = popen(dialog_cmds[i], "r");
+            if (!p)
+                continue;
             if (fgets(found, sizeof(found), p)) {
                 char *nl = strpbrk(found, "\r\n");
                 if (nl) *nl = '\0';

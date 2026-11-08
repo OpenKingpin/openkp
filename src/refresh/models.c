@@ -788,9 +788,13 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         cmdleft--;
         if ((unsigned)sub >= 8)
             sub = 0;
+        if (count == INT_MIN) {
+            err = "Invalid MDX glcmd count";
+            break;
+        }
         num = abs(count);
         fan = count < 0;
-        if (num < 3 || cmdleft < (uint32_t)num * 3) {
+        if (num < 3 || (uint32_t)num > cmdleft / 3) {
             err = "Truncated MDX glcmd";
             break;
         }

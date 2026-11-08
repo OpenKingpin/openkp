@@ -3517,12 +3517,11 @@ void CL_Init(void)
     HTTP_Init();
     UI_CheckServerMirrorCache();
 
-    // Detect and upgrade archaic 1999 Kingpin default binds (Space = +back, Mouse2 = +forward)
-    // or uninitialized controls.
+    // Detect and upgrade archaic 1999 Kingpin default binds (Space = +back, Mouse2 = +forward).
     const char *space_bind = Key_GetBinding("+back");
     const char *m2_bind = Key_GetBinding("+forward");
-    if (!space_bind[0] || !Q_stricmp(space_bind, "SPACE") || !Q_stricmp(m2_bind, "MOUSE2")) {
-        Com_Printf("Applying modern WASD default controls...\n");
+    if (!Q_stricmp(space_bind, "SPACE") || !Q_stricmp(m2_bind, "MOUSE2")) {
+        Com_Printf("Upgrading legacy 1999 controls to modern WASD defaults...\n");
         Key_SetDefaultBindings();
     }
 

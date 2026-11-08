@@ -170,6 +170,9 @@ static int pmicmpfnc(const void *_a, const void *_b)
     const playerModelInfo_t *a = (const playerModelInfo_t *)_a;
     const playerModelInfo_t *b = (const playerModelInfo_t *)_b;
 
+    if (!Q_stricmp(a->directory, b->directory))
+        return 0;
+
     /* Prioritize primary Kingpin classes */
     if (!Q_stricmp(a->directory, "male_thug")) return -1;
     if (!Q_stricmp(b->directory, "male_thug")) return 1;
