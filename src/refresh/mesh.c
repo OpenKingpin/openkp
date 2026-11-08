@@ -388,6 +388,9 @@ static void setup_color(void)
     } else {
         GL_LightPoint(origin, color);
 
+        // Kingpin entity lighting flags:
+        // RF_DIMLIGHT forces a subdued 25% grey ambient lighting level, used by Kingpin
+        // for certain dark objects or shaded props regardless of light grid samples.
         if (flags & RF_DIMLIGHT) {
             VectorSet(color, 0.25f, 0.25f, 0.25f);
         } else if (flags & RF_MINLIGHT) {
@@ -931,6 +934,10 @@ static void setup_weaponmodel(void)
         }
     }
 
+    // In Quake II, left-handed mode mirrors the weapon viewmodel across the X axis.
+    // In Kingpin (flagged by RDF_NOMIRROR_WEAPON), viewmodels are asymmetric with specific
+    // right-handed ejection ports, muzzle flashes, and dual-wielding attachments that break
+    // if mirrored, so weapon mirroring is suppressed when RDF_NOMIRROR_WEAPON is set.
     if (!(glr.fd.rdflags & RDF_NOMIRROR_WEAPON)) {
         if ((info_hand->integer == 1 && cl_gun->integer == 1) || cl_gun->integer == 3) {
             reflect_x = -1.0f;
@@ -947,6 +954,8 @@ void GL_DrawAliasModel(const model_t *model)
     glCullResult_t cull;
     void (*tessfunc)(const maliasmesh_t *);
 
+    // Kingpin models or extended engines: safely wrap frame numbers with modulo
+    // to prevent memory out-of-bounds reads if the server sends high frame indices.
     if (model->numframes > 0 && (glr.fd.extended || (glr.fd.rdflags & RDF_NOMIRROR_WEAPON))) {
         newframenum = (unsigned)ent->frame % model->numframes;
         oldframenum = (unsigned)ent->oldframe % model->numframes;
@@ -1066,6 +1075,11 @@ void GL_DrawAliasModel(const model_t *model)
     for (int i = 0; i < model->nummeshes; i++) {
         const maliasmesh_t *mesh = &model->meshes[i];
 
+        // Kingpin multipart sub-object culling:
+        // Kingpin MDX models can contain up to 8 sub-objects in one file. ent->hidden_parts
+        // is a bitmask where BIT(subobject) indicates that this sub-mesh should be culled
+        // (e.g., hiding a character's default head when wearing a helmet or mask, or hiding
+        // empty weapon slots).
         if (ent->hidden_parts & BIT(mesh->subobject))
             continue;
         tessfunc(mesh);

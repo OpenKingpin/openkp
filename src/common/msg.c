@@ -2127,6 +2127,18 @@ MSG_ParseDeltaEntity
 Can go from either a baseline or a previous packet_entity
 ==================
 */
+/**
+ * @brief Unpacks variable-width renderfx flags from the wire stream.
+ *
+ * Depending on the bit combination of U_RENDERFX8 and U_RENDERFX16:
+ * - Both set: 32-bit unsigned long
+ * - Only U_RENDERFX8: 8-bit byte
+ * - Only U_RENDERFX16: 16-bit word
+ * - Neither: 0 (unchanged)
+ *
+ * @param bits Delta header bitmask.
+ * @return Unpacked integer renderfx flag bits.
+ */
 static int MSG_ReadRenderfx(uint64_t bits)
 {
     if ((bits & (U_RENDERFX8 | U_RENDERFX16)) == (U_RENDERFX8 | U_RENDERFX16))
@@ -2138,6 +2150,19 @@ static int MSG_ReadRenderfx(uint64_t bits)
     return 0;
 }
 
+/**
+ * @brief Reads Kingpin multipart model definitions from the wire message.
+ *
+ * In Kingpin, characters and weapons are composed of up to KP_MAX_MODEL_PARTS (4)
+ * distinct modular meshes (e.g. legs, body, head, weapon/accessories).
+ * The wire begins with a `changed` bitmask identifying which of the 4 parts are updated.
+ * For each updated part:
+ * - `flags & 1`: 1-byte model index update.
+ * - `flags & 2`: 1-byte invisible sub-objects bitmask (culls sub-meshes 0..7).
+ * - `flags & 4`: followed by a skins bitmask and per-subobject 8-bit skin indices.
+ *
+ * @param parts Pointer to the model parts array to update.
+ */
 static void MSG_ReadModelParts(kp_model_part_t *parts)
 {
     int changed = MSG_ReadByte();
@@ -2164,6 +2189,22 @@ static void MSG_ReadModelParts(kp_model_part_t *parts)
     }
 }
 
+/**
+ * @brief Parses a Kingpin protocol 32 delta entity update from the network stream.
+ *
+ * Decompresses entity state updates using Kingpin's custom wire encoding:
+ * - KP_U_ORIGINDELTA: When set, sends relative byte offsets `(byte - 128) * 0.25f`
+ *   rather than full 16-bit coordinates, cutting positional bandwidth significantly.
+ * - KP_U_NUMPARTS / KP_U_MODELPARTS: Unpacks modular body/weapon components.
+ * - KP_U_PART3MODEL: Direct weapon model index assignment for part index 3.
+ * - KP_U_EVENT: Kingpin surface footsteps, damage falls, item respawns, teleports.
+ * - KP_U_SCALE: Signed entity scale byte `byte / 127.0f - 1.0f`.
+ * - KP_U_MODELLIGHT: Dynamic RGB/intensity lighting tint override for the model.
+ *
+ * @param to Destination entity state receiving the parsed delta.
+ * @param ext Extended entity state storage for Kingpin parts, scales, and lights.
+ * @param bits Delta bitmask received for this entity.
+ */
 static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
                                          entity_state_extension_t *ext,
                                          uint64_t bits)
@@ -2173,6 +2214,7 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     if (bits & U_MODEL)
         to->modelindex = MSG_ReadByte();
 
+    // Modular multipart models
     if (bits & KP_U_NUMPARTS)
         ext->num_parts = MSG_ReadByte();
     if (bits & KP_U_MODELPARTS)
@@ -2180,6 +2222,7 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     if (bits & KP_U_PART3MODEL)
         ext->model_parts[3].modelindex = MSG_ReadByte();
 
+    // Animation frame: 8-bit or 16-bit
     if (bits & U_FRAME8)
         to->frame = MSG_ReadByte();
     else if (bits & U_FRAME16)
@@ -2188,6 +2231,7 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     if (to->frame < 0)
         to->frame += 65536;
 
+    // Skin indexing (8, 16, or 32 bits)
     if ((bits & U_SKIN32) == U_SKIN32)
         to->skinnum = MSG_ReadLong();
     else if (bits & U_SKIN8)
@@ -2195,6 +2239,7 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     else if (bits & U_SKIN16)
         to->skinnum = MSG_ReadWord();
 
+    // Visual effects flags
     if ((bits & U_EFFECTS32) == U_EFFECTS32)
         to->effects = MSG_ReadLong();
     else if (bits & U_EFFECTS8)
@@ -2202,11 +2247,13 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     else if (bits & U_EFFECTS16)
         to->effects = MSG_ReadWord();
 
+    // Primary and secondary renderfx
     if (bits & (U_RENDERFX8 | U_RENDERFX16)) {
         to->renderfx = MSG_ReadRenderfx(bits);
         ext->renderfx2 = MSG_ReadRenderfx(bits);
     }
 
+    // Origin position: relative delta compression vs absolute 16-bit coordinates
     if (bits & KP_U_ORIGINDELTA) {
         if (bits & U_ORIGIN1)
             to->origin[0] += (MSG_ReadByte() - 128) * 0.25f;
@@ -2223,6 +2270,7 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
             to->origin[2] = MSG_ReadCoord();
     }
 
+    // Orientation angles (pitch, yaw, roll)
     if (bits & U_ANGLE1)
         to->angles[0] = MSG_ReadAngle();
     if (bits & U_ANGLE2)
@@ -2233,20 +2281,24 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     if (bits & U_OLDORIGIN)
         MSG_ReadPos(to->old_origin, false);
 
+    // Looping / ambient sound index
     if (bits & U_SOUND)
         to->sound = MSG_ReadByte();
     else if (bits & KP_U_SOUND16)
         to->sound = MSG_ReadWord();
 
+    // Kingpin one-shot sound / particle event
     if (bits & KP_U_EVENT)
         to->event = MSG_ReadByte();
 
     if (bits & U_SOLID)
         to->solid = MSG_ReadWord();
 
+    // Entity scale factor
     if (bits & KP_U_SCALE)
         ext->scale = MSG_ReadByte() / 127.0f - 1.0f;
 
+    // Per-entity model dynamic lighting
     if (bits & KP_U_MODELLIGHT)
         ext->model_light = MSG_ReadLong();
 }
@@ -2494,7 +2546,10 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
         memcpy(to, from, sizeof(*to));
     }
 
-    // Kingpin leaves bit 7 unused and shifts every later flag up by one.
+    // Kingpin Protocol 32 bitshift translation:
+    // Quake II uses bits 0..6 for pmove deltas and bit 7 for PS_VIEWOFFSET.
+    // Kingpin leaves bit 7 unused on the wire and shifts bits 8..15 (VIEWOFFSET through RDFLAGS)
+    // up by one position. Here we map the Kingpin wire bits back to internal engine flags.
     if (psflags & MSG_PS_KINGPIN) {
         kpflags = flags;
         flags = kpflags & 0x7f;
@@ -2575,6 +2630,8 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
     if (flags & PS_VIEWOFFSET) {
         to->viewoffset[0] = MSG_ReadChar() * 0.25f;
         to->viewoffset[1] = MSG_ReadChar() * 0.25f;
+        // In Kingpin, viewoffset[2] (viewheight) is encoded as a full 16-bit angle/short
+        // to provide smooth sub-unit vertical camera precision for ducking, climbing, and stairs.
         if (psflags & MSG_PS_KINGPIN)
             to->viewoffset[2] = MSG_ReadAngle16();
         else
@@ -2599,6 +2656,8 @@ void MSG_ParseDeltaPlayerstate_Default(const player_state_t *from,
         else
             to->gunindex = MSG_ReadByte();
 #if USE_PROTOCOL_EXTENSIONS
+        // In Kingpin, weapons themselves can have modular multipart upgrades (silencers,
+        // extended mags, weapon mods), read as part descriptions into gun_parts.
         if (psflags & MSG_PS_KINGPIN)
             MSG_ReadModelParts(to->gun_parts);
 #endif

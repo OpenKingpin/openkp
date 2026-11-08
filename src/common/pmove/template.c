@@ -842,13 +842,18 @@ static void PM_FlyMove(void)
     VectorMA(pml.origin, pml.frametime, pml.velocity, pml.origin);
 }
 
-/*
-==============
-PM_CheckDuck
-
-Sets mins, maxs, and pm->viewheight
-==============
-*/
+/**
+ * @brief Adjusts collision bounding boxes and camera viewheight for ducking/standing.
+ *
+ * Implements Kingpin's taller player hull geometry:
+ * - Quake II:
+ *   Standing hull: [-16,-16,-24] to [16,16,32] (height = 56), viewheight = 22
+ *   Crouched hull: [-16,-16,-24] to [16,16,4]  (height = 28), viewheight = -2
+ * - Kingpin:
+ *   Standing hull: [-16,-16,-24] to [16,16,48] (height = 72), viewheight = 36
+ *   Crouched hull: [-16,-16,-24] to [16,16,24] (height = 48), viewheight = 18
+ *   Dead hull:     [-16,-16,-24] to [16,16,-4] (height = 20), viewheight = -8
+ */
 static void PM_CheckDuck(void)
 {
     trace_t trace;
@@ -1057,6 +1062,21 @@ Pmove
 Can be called by either the server or the client
 ================
 */
+/**
+ * @brief Maps Kingpin wire player move types to internal engine `pmtype_t` constants.
+ *
+ * In Kingpin, vehicles and motorcycles were inserted into the `pmtype_t` enum between
+ * normal player movement and spectator mode, which shifted the integer IDs of spectator,
+ * dead, gib, and freeze on the network wire:
+ * - 0: PM_NORMAL
+ * - 6: PM_SPECTATOR
+ * - 7: PM_DEAD
+ * - 8: PM_GIB
+ * - 9: PM_FREEZE
+ *
+ * @param type Wire integer pm_type received from Kingpin server.
+ * @return Mapped internal engine pmtype_t value.
+ */
 static pmtype_t PM_KingpinType(int type)
 {
     switch (type) {

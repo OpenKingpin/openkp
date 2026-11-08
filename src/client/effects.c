@@ -1942,13 +1942,16 @@ void CL_AddScreenShake(float intensity, int duration)
     }
 }
 
-/*
-===============
-CL_RocketTrailKP
-
-Bazooka rocket trail: thick smoke puffs with buoyancy and trailing exhaust sparks.
-===============
-*/
+/**
+ * @brief Emits Kingpin bazooka rocket smoke and exhaust spark particle trails.
+ *
+ * Interpolates from the previous lerped projectile origin to `end` in discrete 2-unit
+ * increments. Spawns rising buoyant smoke puffs with random grey shading and orange
+ * combustion sparks subjected to gravity.
+ *
+ * @param cent Projectile client entity.
+ * @param end Current projectile world position.
+ */
 void CL_RocketTrailKP(centity_t *cent, const vec3_t end)
 {
     vec3_t move, vec;
@@ -1965,7 +1968,7 @@ void CL_RocketTrailKP(centity_t *cent, const vec3_t end)
     VectorScale(vec, dec, vec);
 
     for (i = 0; i < count; i++) {
-        // Smoke puff
+        // Smoke puff with thermal buoyancy
         if ((Q_rand() & 3) == 0) {
             p = CL_AllocParticle();
             if (!p)
@@ -1985,7 +1988,7 @@ void CL_RocketTrailKP(centity_t *cent, const vec3_t end)
             p->accel[2] = 25.0f; // rising buoyancy
         }
 
-        // Exhaust spark
+        // Exhaust spark falling under gravity
         if ((Q_rand() & 7) == 0) {
             p = CL_AllocParticle();
             if (!p)
@@ -2010,13 +2013,15 @@ void CL_RocketTrailKP(centity_t *cent, const vec3_t end)
     VectorCopy(move, cent->lerp_origin);
 }
 
-/*
-===============
-CL_GrenadeTrailKP
-
-Kingpin grenade trail: wispy tumbling smoke puffs trailing the launched projectile.
-===============
-*/
+/**
+ * @brief Emits wispy smoke puffs behind Kingpin launched pipe grenades.
+ *
+ * Steps along the grenade trajectory vector in 4-unit intervals, spawning
+ * expanding translucent smoke puffs with gentle vertical drift.
+ *
+ * @param cent Grenade client entity.
+ * @param end Current projectile position.
+ */
 void CL_GrenadeTrailKP(centity_t *cent, const vec3_t end)
 {
     vec3_t move, vec;
@@ -2057,14 +2062,18 @@ void CL_GrenadeTrailKP(centity_t *cent, const vec3_t end)
     VectorCopy(move, cent->lerp_origin);
 }
 
-/*
-===============
-CL_ExplosionKP
-
-Kingpin explosion FX for bazooka rockets, grenades, and water blasts:
-fireball core, rising dark smoke, radial sparks, debris shrapnel, screen shake, and dynamic light.
-===============
-*/
+/**
+ * @brief Spawns high-impact Kingpin explosions for bazookas, grenades, and water blasts.
+ *
+ * Features:
+ * - Distance-attenuated camera screen shake (radius 800 units).
+ * - Dynamic lighting burst.
+ * - Underwater explosions: blue dynamic light, "xpld_wat.wav", high-velocity rising water spout and foam bubbles.
+ * - Air explosions: central fireball core, rising dark soot cloud, radial burning sparks, and outward shrapnel.
+ *
+ * @param org World origin of the blast center.
+ * @param type Temporary entity blast type (e.g., TE_ROCKET_EXPLOSION, TE_GRENADE_EXPLOSION).
+ */
 void CL_ExplosionKP(const vec3_t org, int type)
 {
     cdlight_t *dl;
@@ -2240,13 +2249,15 @@ void CL_RocketExplosionKP(const vec3_t org)
     CL_ExplosionKP(org, TE_ROCKET_EXPLOSION);
 }
 
-/*
-===============
-CL_BloodSpurtKP
-
-Kingpin visceral blood droplets and fine mist spray.
-===============
-*/
+/**
+ * @brief Spawns visceral directional blood splatters and fine red mist for gunshot impacts.
+ *
+ * Spawns fast crimson droplets oriented along the surface exit/impact normal vector `dir`
+ * with heavy gravity deceleration, accompanied by expanding fine red mist puffs.
+ *
+ * @param pos World position of flesh impact.
+ * @param dir Normal vector of bullet trajectory or impact surface.
+ */
 void CL_BloodSpurtKP(const vec3_t pos, const vec3_t dir)
 {
     cparticle_t *p;
@@ -2300,14 +2311,19 @@ void CL_BloodSpurtKP(const vec3_t pos, const vec3_t dir)
     }
 }
 
-/*
-===============
-CL_BulletImpactKP
-
-Surface-dependent bullet impact FX: metal sparks & tin sound, wood splinters,
-concrete dust puffs, water splashes.
-===============
-*/
+/**
+ * @brief Produces surface-dependent bullet impact audio and visual particle effects.
+ *
+ * Traces into the world geometry at `pos` along `dir` to identify the BSP surface material:
+ * - Metal / Tin: Plays "weapons/bullethit_tin*.wav", dynamic flash light, fast bouncing sparks.
+ * - Wood / Crate: Plays ricochet SFX, wood splinter debris particles, and sawdust puffs.
+ * - Water: Plays "weapons/xpld_wat.wav", water droplets, and foam spray.
+ * - Concrete / Brick / Stone: Plays ricochet SFX, masonry dust clouds, and small chipped pebbles.
+ *
+ * @param pos World origin of impact.
+ * @param dir Surface outward normal vector.
+ * @param type Temporary entity impact type (e.g. TE_METAL_SPARKS, TE_GUNSHOT, TE_SHOTGUN).
+ */
 extern mtexinfo_t nulltexinfo;
 
 void CL_BulletImpactKP(const vec3_t pos, const vec3_t dir, int type)

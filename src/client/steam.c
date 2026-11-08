@@ -47,11 +47,21 @@ static SteamAPI_IsSteamRunning_fn pfnSteamAPI_IsSteamRunning = NULL;
 static bool steam_active = false;
 static cvar_t *cl_steam;
 
-/*
-==================
-CL_Steam_Init
-==================
-*/
+/**
+ * @brief Dynamically discovers and initializes the Steamworks API for Kingpin.
+ *
+ * OpenKP is completely DRM-free: if the user does not own Kingpin on Steam, or if
+ * the Steam client is not running, OpenKP gracefully operates in standalone mode.
+ *
+ * Initialization process:
+ * 1. Checks for GOG Galaxy installation metadata (`goggame-1207658742.info`).
+ * 2. Sets environment variables `SteamAppId` and `SteamGameId` to 38430 (Kingpin: Life of Crime).
+ * 3. Generates `steam_appid.txt` if not present in the current working directory.
+ * 4. Dynamically probes for `steam_api` shared libraries across platform paths.
+ * 5. Resolves API function pointers (`SteamAPI_InitSafe`, `SteamAPI_Shutdown`, etc.).
+ * 6. Checks if the Steam client is active via `SteamAPI_IsSteamRunning()`.
+ * 7. Calls `SteamAPI_Init()` to enable Steam overlay, presence, and friend integration.
+ */
 void CL_Steam_Init(void)
 {
     cl_steam = Cvar_Get("cl_steam", "1", CVAR_ARCHIVE);
@@ -178,11 +188,11 @@ void CL_Steam_Init(void)
     }
 }
 
-/*
-==================
-CL_Steam_Frame
-==================
-*/
+/**
+ * @brief Pumps Steamworks asynchronous callback dispatch once per client frame.
+ *
+ * Dispatches Steam callbacks for friend invites, auth tickets, and overlay states.
+ */
 void CL_Steam_Frame(void)
 {
     if (steam_active && pfnSteamAPI_RunCallbacks) {
@@ -190,11 +200,9 @@ void CL_Steam_Frame(void)
     }
 }
 
-/*
-==================
-CL_Steam_Shutdown
-==================
-*/
+/**
+ * @brief Unloads the Steamworks runtime and releases dynamic library handles.
+ */
 void CL_Steam_Shutdown(void)
 {
     if (steam_active) {

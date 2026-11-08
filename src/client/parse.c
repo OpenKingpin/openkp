@@ -765,8 +765,25 @@ static void kp_read_pos_dir(void)
     MSG_ReadDir(te.dir);
 }
 
-// Kingpin temp-entity numbers are not Quake II's. Read the Kingpin body,
-// then store a Quake II type so the effect player still runs.
+/**
+ * @brief Parses Kingpin protocol 32 temporary entity network packets.
+ *
+ * Kingpin defines its own temporary entity numbers (`TE_KP_*`) and payload wire formats
+ * which differ substantially from Quake II:
+ * - `TE_KP_GUNSHOT` / `TE_KP_BULLET_SPARKS` / `TE_KP_METAL_SPARKS`: Send origin and normal vector.
+ * - `TE_KP_BLOOD`: Sends origin and an 8-bit damage magnitude byte rather than direction.
+ * - `TE_KP_BLOOD_DRIP` / `TE_KP_BLOOD_POOL`: Ground blood decals with surface normals.
+ * - `TE_KP_RAILTRAIL`: Origin, destination end position, plus a direction normal.
+ * - `TE_KP_CONCUSSION_EXPLOSION` / `TE_KP_CONCUSSION_EXPLOSION_BIG`: Heavy explosive concussion
+ *   blasts (used for bazooka rockets and pipe grenades) sending origin, surface normal, and radius count.
+ * - Environmental FX: Steam vents (op 50), smoke (op 51), burn decals (op 53), gibs (op 55).
+ *
+ * This function reads the exact Kingpin network wire payload bytes to maintain packet alignment,
+ * then converts the parameters into the client temporary entity structure (`te`) to trigger
+ * high-fidelity visual and audio effects in `CL_ParseTEnt()`.
+ *
+ * @param type Kingpin temporary entity ID from the network stream.
+ */
 static void CL_ParseKingpinTEnt(int type)
 {
     switch (type) {
@@ -1413,6 +1430,14 @@ static void CL_ParseInventory(void)
     }
 }
 
+/**
+ * @brief Handles Kingpin protocol 32 server push downloads (maps, paks, skins).
+ *
+ * In vanilla Quake II, file downloads are entirely client-pull driven using `svc_download`.
+ * Kingpin introduced `svc_pushdownload`, where the server pushes file chunks directly
+ * to the client with an ID tag, total file size, and transfer rate.
+ * A chunk size of -1 indicates end-of-transfer or error.
+ */
 static void CL_ParsePushDownload(void)
 {
     int size, filesize, id, kb;

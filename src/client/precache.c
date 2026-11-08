@@ -99,6 +99,16 @@ players/<model>/ and the skin numbers in the configstring pick
 <head> <body> <legs> under the directories in skinfolder.txt.
 ================
 */
+/**
+ * @brief Reads a whitespace-separated token from a Kingpin skin definition string.
+ *
+ * Advances the string pointer past leading spaces and copies characters up to
+ * the next space or null terminator into `out`.
+ *
+ * @param pp Pointer to the current string cursor, updated upon return.
+ * @param out Destination buffer for the extracted token.
+ * @param size Maximum buffer capacity including null terminator.
+ */
 static void CL_KingpinToken(const char **pp, char *out, size_t size)
 {
     const char *p = *pp;
@@ -113,6 +123,22 @@ static void CL_KingpinToken(const char **pp, char *out, size_t size)
     *pp = p + n;
 }
 
+/**
+ * @brief Parses skin folder directory redirects from a character's skinfolder.txt.
+ *
+ * In Kingpin, player models can specify directory overrides for head, body, and legs skins
+ * in `players/<model>/skinfolder.txt` using directives like:
+ *   head: players/male_thug/head
+ *   body: players/male_thug/body
+ *   legs: players/male_thug/legs
+ * If any part directory is omitted, it defaults to `players/<model>`.
+ *
+ * @param model Character model name (e.g., "male_thug", "bitch", "runt").
+ * @param head Output buffer for head skin directory path.
+ * @param body Output buffer for body skin directory path.
+ * @param legs Output buffer for legs skin directory path.
+ * @param size Maximum buffer capacity.
+ */
 void CL_KingpinSkinDirs(const char *model, char *head, char *body, char *legs, size_t size)
 {
     char path[MAX_QPATH];
@@ -165,6 +191,15 @@ void CL_KingpinSkinDirs(const char *model, char *head, char *body, char *legs, s
         Q_snprintf(legs, size, "players/%s", model);
 }
 
+/**
+ * @brief Registers a modular player model part (.MDX) by model name and part name.
+ *
+ * Loads `players/<model>/<part>.mdx` (e.g., "head.mdx", "body.mdx", "legs.mdx").
+ *
+ * @param model Character model directory name.
+ * @param part Body part name ("head", "body", or "legs").
+ * @return Registered model handle, or 0 if missing.
+ */
 static qhandle_t CL_RegisterKingpinPart(const char *model, const char *part)
 {
     char path[MAX_QPATH];
@@ -174,6 +209,21 @@ static qhandle_t CL_RegisterKingpinPart(const char *model, const char *part)
     return R_RegisterModel(path);
 }
 
+/**
+ * @brief Locates and registers a Kingpin skin texture (.tga or .pcx).
+ *
+ * Searches for composite part textures using Kingpin's naming conventions:
+ * 1. Subdirectory format: `<folder>/<subdir>/<part>_<skinname>.tga` / `.pcx`
+ * 2. Flat format: `<folder>/<part>_<codefp>.tga` / `.pcx`
+ * 3. Exact format: `<folder>/<code>.tga` / `.pcx`
+ * Checks TGA first for 32-bit truecolor, falling back to 8-bit paletted PCX.
+ *
+ * @param model Model name (e.g., "male_thug").
+ * @param folder Directory path where skin resides.
+ * @param part Modular body part ("head", "body", "legs").
+ * @param code Skin identifier code from configstring or skinfolder.
+ * @return Registered image handle, or 0 if not found.
+ */
 qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const char *part, const char *code)
 {
     char path[MAX_QPATH];
@@ -239,6 +289,22 @@ qhandle_t CL_RegisterKingpinSkin(const char *model, const char *folder, const ch
     return 0;
 }
 
+/**
+ * @brief Parses skinfolder.txt inside a skin preset folder to extract composite part codes.
+ *
+ * For packaged skins (e.g. `players/male_thug/cyborg/skinfolder.txt`), reads:
+ *   head: <head_texture_code>
+ *   body: <body_texture_code>
+ *   legs: <legs_texture_code>
+ *
+ * @param model_name Player model name.
+ * @param skin_folder Subfolder name containing the preset.
+ * @param out_head Destination buffer for head texture name.
+ * @param out_body Destination buffer for body texture name.
+ * @param out_legs Destination buffer for legs texture name.
+ * @param maxlen Destination buffer size.
+ * @return True if all three parts were successfully parsed, false otherwise.
+ */
 static bool CL_ParseSkinFolderText(const char *model_name, const char *skin_folder,
                                    char *out_head, char *out_body, char *out_legs, size_t maxlen)
 {
@@ -287,6 +353,20 @@ static bool CL_ParseSkinFolderText(const char *model_name, const char *skin_fold
     return (found_h && found_b && found_l);
 }
 
+/**
+ * @brief Parses and precaches player multipart geometry, textures, and weapon models for Kingpin.
+ *
+ * In Kingpin:
+ * 1. Player models do not use Quake II's monolithic `tris.md2`.
+ * 2. Each character consists of 3 distinct modular MDX files: `head.mdx`, `body.mdx`, `legs.mdx`.
+ * 3. The userinfo string provides model name and 3 skin identifiers: `name\model/head body legs`.
+ * 4. If only one skin identifier is passed, it attempts to load `skinfolder.txt` to expand into 3 parts.
+ * 5. Precaches all character-specific visual weapons (`players/<model>/w_*.mdx`), falling back to
+ *    `male_thug` if a custom model lacks animations for a given weapon.
+ *
+ * @param ci Destination clientinfo structure to initialize.
+ * @param s Userinfo/configstring containing name and model/skin specifications.
+ */
 static void CL_LoadKingpinClientinfo(clientinfo_t *ci, const char *s)
 {
     const char *spec, *slash, *cursor;

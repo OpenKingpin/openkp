@@ -1634,7 +1634,24 @@ static void HUD_DrawNumber(int x, int y, int color, int width, int value)
     HUD_DrawNumberSized(x, y, color, width, value, DIGIT_WIDTH, DIGIT_HEIGHT);
 }
 
-// Kingpin's statusbar does not position armor doll. The client does.
+/**
+ * @brief Renders Kingpin's 3-piece armor paper doll HUD display.
+ *
+ * Kingpin replaces Quake II's single aggregate armor stat with localized body armor:
+ * - Head (`STAT_KP_ARMOR1`): helmet/head protection
+ * - Body (`STAT_KP_ARMOR2`): vest/torso protection
+ * - Legs (`STAT_KP_ARMOR3`): leg armor
+ *
+ * Each armor piece encodes both type and durability in a single integer:
+ * - Durability values >= 1024 represent Heavy Armor (`amount = value - 1024`).
+ * - Durability values < 1024 represent Light Armor (`amount = value`).
+ *
+ * Dynamically overlays color-coded damage tint sprites:
+ * - Green: > 74 hit points (intact)
+ * - Yellow: 49..74 hit points (damaged)
+ * - Red: 1..48 hit points (critical)
+ * Displays 8x12 numbers showing exact hit points to the left of the paper doll.
+ */
 static void HUD_DrawKingpinArmor(void)
 {
     static const struct {
@@ -1680,7 +1697,19 @@ static void HUD_DrawKingpinArmor(void)
     }
 }
 
-// Kingpin Bagman: team safe cash and bag status display
+/**
+ * @brief Renders team safe scores and alert status for Kingpin's Bagman gamemode.
+ *
+ * In Kingpin Bagman, players collect cash and deposit it into their team's safe,
+ * or raid the enemy safe to steal their loot.
+ * - Team 1 (Dragons / Red): Icon at top left with safe balance.
+ * - Team 2 (Nikki's Boyz / Blue): Icon at top right with safe balance.
+ *
+ * Flashing status logic:
+ * - Flash state 1: Green digits signify that cash was just successfully deposited.
+ * - Flash state 2: Alternating red digits and flashing "BAG STOLEN!" warning text
+ *   alert players that their team's safe has been breached and the bag is in transit.
+ */
 static void HUD_DrawKingpinTeams(void)
 {
     // Team 1 (Dragons / Red)
@@ -1728,7 +1757,13 @@ static void HUD_DrawKingpinTeams(void)
     }
 }
 
-// Kingpin Bagman: stolen bag cash carried by player
+/**
+ * @brief Renders the carried stolen money bag HUD indicator in Bagman gamemode.
+ *
+ * When the local player is carrying the enemy team's stolen safe money bag
+ * (`STAT_KP_BAGCASH` > 0), displays pulsating warning digits and the money bag icon
+ * above the weapon clip status.
+ */
 static void HUD_DrawKingpinBagCash(void)
 {
     int bagcash = cl.frame.ps.stats[STAT_KP_BAGCASH];
@@ -1745,6 +1780,13 @@ static void HUD_DrawKingpinBagCash(void)
     }
 }
 
+/**
+ * @brief Draws a scaled Kingpin HUD statusbar icon from a configstring image stat index.
+ *
+ * @param stat Stat index pointing to image precache ID.
+ * @param x Screen X coordinate.
+ * @param y Screen Y coordinate.
+ */
 static void HUD_DrawKingpinIcon(int stat, int x, int y)
 {
     if (stat < 0 || stat >= MAX_STATS)
@@ -1928,7 +1970,19 @@ static void SCR_DrawHealthBar(int x, int y, int value)
     R_DrawFill8(x + w, y, bar_width - w, h, 4);
 }
 
-// This server's statusbar uses '.' as a command break: ".yt.20 .xr.-85".
+/**
+ * @brief Normalizes Kingpin statusbar layout strings for standard token parsing.
+ *
+ * Official Kingpin dedicated servers (`kpded2`) pack statusbar commands using dot delimiters
+ * rather than whitespace (e.g. `".yt.20 .xr.-85"`). This function scans the string and
+ * converts unquoted dots outside of string literals into spaces, allowing the engine's
+ * standard `COM_Parse()` layout processor to parse x/y coordinates and commands.
+ *
+ * @param s Raw layout string from server configstring.
+ * @param buf Output buffer for normalized layout text.
+ * @param size Maximum buffer capacity.
+ * @return Pointer to normalized string buffer, or original string if non-Kingpin protocol.
+ */
 static const char *SCR_KingpinLayout(const char *s, char *buf, size_t size)
 {
     size_t i = 0;

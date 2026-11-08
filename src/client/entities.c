@@ -213,6 +213,10 @@ static void parse_entity_event(int number)
     if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
         bool is_local = (number == cl.clientNum + 1);
 
+        // Kingpin network entity events:
+        // Kingpin delivers footsteps and landing impacts as discrete surface events (0..8)
+        // rather than generic Quake II footstep sounds. Local player events are ignored here
+        // when client prediction is enabled to avoid double-playing footsteps.
         switch (cent->current.event) {
         case EV_KP_ITEM_RESPAWN:
             S_StartSound(NULL, number, CHAN_WEAPON, S_RegisterSound("items/respawn1.wav"), 1, ATTN_IDLE, 0);
@@ -228,6 +232,7 @@ static void parse_entity_event(int number)
         case EV_KP_FOOTSTEP7:
         case EV_KP_FOOTSTEP8:
             if (cl_footsteps->integer) {
+                // If local client is predicting its own steps, suppress the delayed server echo
                 if (is_local && cl_predict->integer && !(cl.frame.ps.pmove.pm_flags & PMF_NO_PREDICTION))
                     return;
                 int surf = cent->current.event - EV_KP_FOOTSTEP0;
@@ -251,9 +256,11 @@ static void parse_entity_event(int number)
             }
             return;
         case EV_KP_FALL:
+            // Moderate fall damage grunt
             S_StartSound(NULL, number, CHAN_VOICE, cl_kp_falls[0], 1.0f, ATTN_IDLE, 0);
             return;
         case EV_KP_FALLFAR:
+            // Extreme fall damage bone-crunch scream
             S_StartSound(NULL, number, CHAN_VOICE, cl_kp_falls[1], 1.0f, ATTN_IDLE, 0);
             return;
         case EV_KP_PLAYER_TELEPORT:
@@ -555,6 +562,19 @@ CL_AddPacketEntities
 
 ===============
 */
+/**
+ * @brief Emits render entities for modular Kingpin model parts and weapon attachments.
+ *
+ * Traverses an entity's `model_parts[]` array. For each valid part:
+ * 1. Resolves model asset path from configstrings. Names prefixed with '#' denote
+ *    character-specific weapon view attachments (e.g. `players/<model>/w_*.mdx`).
+ * 2. Unpacks `invisible_objects` subobject culling bitmasks.
+ * 3. Batches visible sub-objects sharing identical skin assignments and submits
+ *    them to the render view via `V_AddEntity()`.
+ *
+ * @param ent Base render entity template (contains lerped origin, angles, renderfx).
+ * @param s1 Current packet entity state containing `model_parts[]`.
+ */
 static void CL_AddKingpinModelParts(entity_t *ent, const centity_state_t *s1)
 {
     int p;
@@ -604,6 +624,7 @@ static void CL_AddKingpinModelParts(entity_t *ent, const centity_state_t *s1)
         if (!left)
             continue;
 
+        // Group sub-objects by identical skin indices to minimize draw calls
         while (left) {
             int obj, j;
             byte skin, show;
@@ -629,6 +650,21 @@ static void CL_AddKingpinModelParts(entity_t *ent, const centity_state_t *s1)
     ent->model = saved;
 }
 
+/**
+ * @brief Constructs and submits the full multi-part Kingpin player model to the renderer.
+ *
+ * Unlike Quake II where a player is a single `tris.md2` mesh, Kingpin builds each character
+ * from three coordinated .MDX components:
+ * 1. Legs (`kp_legs`): handles walking, ducking, jumping, swimming animations.
+ * 2. Body (`kp_body`): handles torso posture, breathing, firing recoil, pain.
+ * 3. Head (`kp_head`): synchronized with torso rotations, speech, and facial expressions.
+ * Plus visual held weapon (part 3 / vwep):
+ * 4. Held weapon (`weaponmodel`): attaches directly to the character's hand bone/tag,
+ *    drawn with the character's active animation frame.
+ *
+ * @param ent Base render entity template.
+ * @param s1 Current packet entity state.
+ */
 static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
 {
     int client = s1->skinnum & 0xff;

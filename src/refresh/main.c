@@ -268,6 +268,16 @@ void GL_MultMatrix(GLfloat *restrict p, const GLfloat *restrict a, const GLfloat
     }
 }
 
+/**
+ * @brief Constructs the 3x3 orthonormal coordinate axis and scale for the active entity.
+ *
+ * In addition to standard pitch/yaw/roll Euler rotations, handles Kingpin-specific
+ * orientation flags:
+ * - RF_FACING: Full spherical billboarding. Copies camera view axes directly so the
+ *   entity always squares up to the camera view plane.
+ * - RF_FACINGUP: Used for flat decals lying horizontally on surfaces (such as blood pools,
+ *   oil slicks, or ground blast marks), aligning entity axes to world coordinates.
+ */
 void GL_SetEntityAxis(void)
 {
     const entity_t *e = glr.ent;
@@ -276,11 +286,13 @@ void GL_SetEntityAxis(void)
     glr.entscale = 1;
 
     if (e->flags & RF_FACING) {
+        // Spherical billboard: match camera view orientation
         VectorCopy(glr.viewaxis[0], glr.entaxis[0]);
         VectorCopy(glr.viewaxis[1], glr.entaxis[1]);
         VectorCopy(glr.viewaxis[2], glr.entaxis[2]);
         glr.entrotated = true;
     } else if (e->flags & RF_FACINGUP) {
+        // Flat ground decal alignment: align to world horizontal axes
         VectorSet(glr.entaxis[0], 1, 0, 0);
         VectorSet(glr.entaxis[1], 0, 1, 0);
         VectorSet(glr.entaxis[2], 0, 0, 1);
@@ -373,6 +385,9 @@ static void GL_DrawSpriteModel(const model_t *model)
     GL_ArrayBits(GLA_VERTEX | GLA_TC);
     GL_Color(1, 1, 1, alpha);
 
+    // Kingpin horizontal sprite billboarding:
+    // When RF_FACINGUP is set, the sprite lies flat on the horizontal ground plane (XY plane)
+    // rather than facing the camera. If entity angles are specified, it aligns to yaw.
     if (e->flags & RF_FACINGUP) {
         vec3_t horiz_right, horiz_forward;
         if (!VectorEmpty(e->angles)) {
@@ -388,6 +403,7 @@ static void GL_DrawSpriteModel(const model_t *model)
         VectorScale(horiz_forward, -frame->origin_y * scale, down);
         VectorScale(horiz_forward, (frame->height - frame->origin_y) * scale, up);
     } else {
+        // Standard view-aligned billboard facing camera axes
         VectorScale(glr.viewaxis[1], frame->origin_x * scale, left);
         VectorScale(glr.viewaxis[1], (frame->origin_x - frame->width) * scale, right);
         VectorScale(glr.viewaxis[2], -frame->origin_y * scale, down);

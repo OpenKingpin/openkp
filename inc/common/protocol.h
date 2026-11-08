@@ -25,7 +25,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define MAX_MSGLEN  0x8000      // max length of a message, 32 KiB
 
 #define PROTOCOL_VERSION_OLD            26
-#define PROTOCOL_VERSION_KINGPIN        32
+#define PROTOCOL_VERSION_KINGPIN        32      // Official Kingpin: Life of Crime 1.21 wire protocol
 #define PROTOCOL_VERSION_DEFAULT        34
 #define PROTOCOL_VERSION_R1Q2           35
 #define PROTOCOL_VERSION_Q2PRO          36
@@ -123,20 +123,22 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 //
 // server to client
 //
+// Kingpin protocol 32 server-to-client operations.
 // Kingpin inserts muzzleflash3 and hud, then four ops after svc_frame.
-// Numbers match kpded2's KINGPIN svc_ops_e. The R1Q2/Q2PRO ops stay
-// past that range so they do not collide with the Kingpin wire.
+// Opcode numeric values match kpded2's KINGPIN svc_ops_e enum. Modern Q2PRO/R1Q2
+// extensions (svc_zpacket, svc_gamestate, etc.) are placed past that range so
+// their numeric values never collide with Kingpin on the wire.
 typedef enum {
     svc_bad,
 
     // these ops are known to the game dll
     svc_muzzleflash,
     svc_muzzleflash2,
-    svc_muzzleflash3,
+    svc_muzzleflash3,           // Kingpin: third muzzleflash channel / environmental weapon FX
     svc_temp_entity,
     svc_layout,
     svc_inventory,
-    svc_hud,
+    svc_hud,                    // Kingpin: explicit HUD / statusbar state sync notification
 
     // the rest are private to the client and server
     svc_nop,
@@ -155,12 +157,12 @@ typedef enum {
     svc_packetentities,         // [...]
     svc_deltapacketentities,    // [...]
     svc_frame,
-    svc_configstring_pointer,
-    svc_pushdownload,
-    svc_cpacket,                // patched clients only
-    svc_xdownload,              // patched clients only
+    svc_configstring_pointer,   // Kingpin: pointer-based configstring indexing
+    svc_pushdownload,           // Kingpin: server push file downloads (maps, paks, skins)
+    svc_cpacket,                // Kingpin: patched client custom extension packet
+    svc_xdownload,              // Kingpin: extended file download protocol
 
-    // not on the Kingpin wire
+    // not on the Kingpin wire (Q2PRO / R1Q2 extended ops)
     svc_zpacket,
     svc_zdownload,
     svc_gamestate,
@@ -261,15 +263,18 @@ typedef enum {
 #define PS_RDFLAGS          BIT(14)
 #define PS_MOREBITS         BIT(15)     // read one additional byte
 
-// Kingpin leaves bit 7 unused and shifts the remaining playerstate flags.
-#define KP_PS_VIEWOFFSET    BIT(8)
-#define KP_PS_VIEWANGLES    BIT(9)
-#define KP_PS_KICKANGLES    BIT(10)
-#define KP_PS_BLEND         BIT(11)
-#define KP_PS_FOV           BIT(12)
-#define KP_PS_WEAPONINDEX   BIT(13)
-#define KP_PS_WEAPONFRAME   BIT(14)
-#define KP_PS_RDFLAGS       BIT(15)
+// Kingpin Protocol 32 playerstate delta bitmask:
+// In Quake II protocol 34, bit 7 represents PS_VIEWOFFSET. In Kingpin protocol 32,
+// bit 7 was left unused in the wire bitmask, which shifted all remaining playerstate
+// fields up by exactly 1 bit position compared to Quake II.
+#define KP_PS_VIEWOFFSET    BIT(8)      // View offset Z (read as 16-bit angle rather than 8-bit char)
+#define KP_PS_VIEWANGLES    BIT(9)      // Aiming view angles
+#define KP_PS_KICKANGLES    BIT(10)     // Weapon recoil / damage screen kick angles
+#define KP_PS_BLEND         BIT(11)     // Screen color tint blend (pain, underwater, item pickup)
+#define KP_PS_FOV           BIT(12)     // Field of view angle (zooming, sniper scope)
+#define KP_PS_WEAPONINDEX   BIT(13)     // Active gun model index and weapon multipart attachments
+#define KP_PS_WEAPONFRAME   BIT(14)     // Active gun animation frame
+#define KP_PS_RDFLAGS       BIT(15)     // Render flags (e.g. RDF_NOMIRROR_WEAPON)
 
 #define PS_FOG              BIT(16)
 
@@ -389,15 +394,18 @@ typedef enum {
 #define U_SOUND         BIT_ULL(26)
 #define U_SOLID         BIT_ULL(27)
 
-// Kingpin reuses bits that Quake II spent on other fields.
-#define KP_U_ORIGINDELTA    BIT_ULL(5)
-#define KP_U_EVENT          BIT_ULL(13)
-#define KP_U_SOUND16        BIT_ULL(20)
-#define KP_U_PART3MODEL     BIT_ULL(21)
-#define KP_U_NUMPARTS       BIT_ULL(28)
-#define KP_U_MODELPARTS     BIT_ULL(29)
-#define KP_U_MODELLIGHT     BIT_ULL(30)
-#define KP_U_SCALE          BIT_ULL(31)
+// Kingpin Protocol 32 Entity Delta Bits:
+// Kingpin reuses and repurposes several delta encoding bits that Quake II used
+// for other fields, to support modular multi-part character models, fine 8-bit
+// origin deltas, per-entity dynamic lighting, and custom scales:
+#define KP_U_ORIGINDELTA    BIT_ULL(5)  // 1-byte relative delta origin: (byte - 128) * 0.25f per axis
+#define KP_U_EVENT          BIT_ULL(13) // Kingpin 8-bit sound/particle event ID
+#define KP_U_SOUND16        BIT_ULL(20) // 16-bit sound index
+#define KP_U_PART3MODEL     BIT_ULL(21) // Model part index for slot 3 (held weapon)
+#define KP_U_NUMPARTS       BIT_ULL(28) // Number of active modular model parts (up to KP_MAX_MODEL_PARTS)
+#define KP_U_MODELPARTS     BIT_ULL(29) // Full multipart configuration stream (indices, skins, hide bits)
+#define KP_U_MODELLIGHT     BIT_ULL(30) // 32-bit packed RGBA model ambient light color
+#define KP_U_SCALE          BIT_ULL(31) // Signed 8-bit entity scale: byte / 127.0f - 1.0f
 #define U_MODEL16       BIT_ULL(28)
 #define U_MOREFX8       BIT_ULL(29)
 #define U_ALPHA         BIT_ULL(30)

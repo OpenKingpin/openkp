@@ -162,11 +162,23 @@ static int CL_PointContents(const vec3_t point)
     return contents;
 }
 
-/*
-==================
-CL_PredictAudioKingpin
-==================
-*/
+/**
+ * @brief Performs zero-latency client-side audio prediction for Kingpin movement events.
+ *
+ * Runs immediately following local player physics simulation to eliminate net latency for:
+ * 1. Landing sounds: triggers surface-specific landing thuds upon ground contact with
+ *    downward velocity between -140 and -600 units/s (severe falls leave screams to the server).
+ * 2. Jump grunts: plays randomized voice jump efforts at the exact moment of liftoff.
+ * 3. Ladder climbing: tracks vertical travel distance, playing light metal rung steps every 32 units.
+ * 4. Ground footsteps: tracks horizontal travel distance (60 units running, 36 units crouched),
+ *    evaluating ground polygon textures in real-time to trigger responsive material footstep SFX.
+ *
+ * @param pm Active pmove state structure.
+ * @param was_on_ground Ground contact state prior to current pmove step.
+ * @param was_ladder Ladder attachment state prior to current pmove step.
+ * @param pre_z_vel Vertical velocity prior to collision resolution.
+ * @param old_origin World position prior to current pmove step.
+ */
 static void CL_PredictAudioKingpin(const pmove_t *pm, qboolean was_on_ground, qboolean was_ladder,
                                    float pre_z_vel, const vec3_t old_origin)
 {
@@ -231,11 +243,15 @@ static void CL_PredictAudioKingpin(const pmove_t *pm, qboolean was_on_ground, qb
     }
 }
 
-/*
-==================
-CL_PredictWeaponAudioKingpin
-==================
-*/
+/**
+ * @brief Predicts weapon handling audio effects client-side.
+ *
+ * 1. Weapon draw/switch cocking sound: detects changes in the active gun model index
+ *    and immediately plays the weapon's distinctive cocking/loading SFX (shotgun pump,
+ *    tommygun charging bolt, heavy machinegun cock, pistol slide rack, etc.).
+ * 2. Dry-fire click: detects the leading edge of the attack button when the active weapon's
+ *    ammo count is exhausted, immediately playing an empty weapon hammer click.
+ */
 static void CL_PredictWeaponAudioKingpin(void)
 {
     // 1. Weapon draw / switch cocking sound

@@ -238,6 +238,7 @@ static void CL_RegisterFootsteps(void)
     }
 }
 
+// Kingpin surface sound directories corresponding to the KP_SURF_* surface types
 static const char *const kp_step_dirs[KP_SURF_COUNT] = {
     "actors/player/step pavement",
     "actors/player/step rug",
@@ -262,6 +263,18 @@ qhandle_t cl_kp_pistol_clip;
 qhandle_t cl_kp_rocket_reload;
 qhandle_t cl_kp_grenade_reload;
 
+/**
+ * @brief Classifies a world surface and contents into one of Kingpin's 9 footstep material types.
+ *
+ * Checks waterlevel/contents first, then inspects BSP surface flags (SURF_WOOD, SURF_TILE,
+ * SURF_METAL, SURF_METAL_L, SURF_SNOW/TIN, SURF_GRAVEL, SURF_FABRIC, SURF_CONCRETE).
+ * If flags are generic or unset, inspects texture name substrings as a fallback.
+ *
+ * @param surf BSP surface structure sampled from trace.
+ * @param contents Brush contents bitmask.
+ * @param waterlevel Current entity immersion level (0 = dry, 1 = feet, 2 = waist, 3 = under).
+ * @return Kingpin surface index: KP_SURF_PAVEMENT (0) through KP_SURF_WATER (8).
+ */
 int CL_SurfaceToKingpinStep(const csurface_t *surf, int contents, int waterlevel)
 {
     if (waterlevel == 1 || (contents & MASK_WATER))
@@ -311,6 +324,17 @@ int CL_SurfaceToKingpinStep(const csurface_t *surf, int contents, int waterlevel
     return KP_SURF_PAVEMENT;
 }
 
+/**
+ * @brief Traces directly downward to sample the floor surface beneath an entity.
+ *
+ * Performs an axial trace downwards from `origin` using the entity's horizontal bounds
+ * to identify the floor polygon, contents, and material.
+ *
+ * @param origin Entity world origin.
+ * @param mins Entity bounding box minimum coordinates (or NULL for default player box).
+ * @param maxs Entity bounding box maximum coordinates (or NULL for default player box).
+ * @return Detected Kingpin surface material index.
+ */
 int CL_TraceSurfaceFootstep(const vec3_t origin, const vec3_t mins, const vec3_t maxs)
 {
     vec3_t start, end;
@@ -338,6 +362,16 @@ int CL_TraceSurfaceFootstep(const vec3_t origin, const vec3_t mins, const vec3_t
     return CL_SurfaceToKingpinStep(tr.surface, tr.contents, 0);
 }
 
+/**
+ * @brief Plays a randomized Kingpin footstep sound on CHAN_FOOTSTEP for an entity.
+ *
+ * Each of the 9 surfaces has 4 randomized audio variations to prevent repetitive stepping sounds.
+ *
+ * @param entnum Entity number generating the footstep.
+ * @param surf_type Surface material type (KP_SURF_PAVEMENT .. KP_SURF_WATER).
+ * @param volume Playback gain [0.0..1.0].
+ * @param attenuation Sound distance attenuation curve.
+ */
 void CL_PlayKingpinFootstep(int entnum, int surf_type, float volume, float attenuation)
 {
     if (surf_type < 0 || surf_type >= KP_SURF_COUNT)
@@ -350,6 +384,14 @@ void CL_PlayKingpinFootstep(int entnum, int surf_type, float volume, float atten
     }
 }
 
+/**
+ * @brief Plays a Kingpin landing impact sound on CHAN_BODY when hitting the ground.
+ *
+ * @param entnum Entity number landing on the ground.
+ * @param surf_type Surface material type of the impact polygon.
+ * @param volume Playback gain.
+ * @param attenuation Distance attenuation curve.
+ */
 void CL_PlayKingpinLand(int entnum, int surf_type, float volume, float attenuation)
 {
     if (surf_type < 0 || surf_type >= KP_SURF_COUNT)
@@ -361,6 +403,11 @@ void CL_PlayKingpinLand(int entnum, int surf_type, float volume, float attenuati
     }
 }
 
+/**
+ * @brief Plays a randomized Kingpin vocal jump effort grunt on CHAN_VOICE.
+ *
+ * @param entnum Entity number jumping.
+ */
 void CL_PlayKingpinJump(int entnum)
 {
     int r = Q_rand_uniform(3);

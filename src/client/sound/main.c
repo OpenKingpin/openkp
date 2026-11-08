@@ -429,6 +429,12 @@ static sfx_t *S_RegisterSexedSound(int entnum, const char *base)
         model = "male";
 
     if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        // Kingpin gender voice mapping:
+        // In Quake II, gendered sounds reside in `players/<model>/<sound>`.
+        // In Kingpin, vocal assets (pain, death screams, taunts) reside in
+        // `sound/actors/player/<gender>/<sound>` where gender is "male" or "female".
+        // Models with names containing "female", "chick", or "bitch" use the female sound set;
+        // all others default to "male". If a female sound is missing, it falls back to male.
         bool is_female = (Q_strcasestr(model, "female") || Q_strcasestr(model, "chick") || Q_strcasestr(model, "bitch"));
         const char *gender = is_female ? "female" : "male";
 
@@ -743,6 +749,8 @@ void S_ParseStartSound(void)
         return;
 
     if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && cl_predict->integer) {
+        // Suppress duplicate server jump grunt if the client already played a predicted jump sound
+        // within the last 500ms for the local player entity.
         if (snd.entity == cl.clientNum + 1 && snd.channel == CHAN_VOICE) {
             sfx_t *sfx = S_SfxForHandle(handle);
             if (sfx && strstr(sfx->name, "jump")) {

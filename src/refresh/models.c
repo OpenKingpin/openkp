@@ -529,6 +529,17 @@ static int MOD_LoadMD2(model_t *model, const void *rawdata, size_t length)
     return Q_ERR_SUCCESS;
 }
 
+/**
+ * @brief Finds the closest discrete precomputed vertex normal index for a given vector.
+ *
+ * Quake II and Kingpin alias models quantize vertex normal directions to a sphere of
+ * 162 discrete precomputed normal vectors stored in `bytedirs[]`. This function
+ * calculates dot products between the normalized input vector `n` and each direction
+ * in the table, selecting the table index with the highest cosine alignment.
+ *
+ * @param n Normalized 3D normal vector to match.
+ * @return Byte index into `bytedirs[]` (0 to 161).
+ */
 static byte BestNormalIndex(const vec3_t n)
 {
     float best = -1.0f;
@@ -539,13 +550,34 @@ static byte BestNormalIndex(const vec3_t n)
         if (d > best) {
             best = d;
             best_idx = i;
-            if (d > 0.999f)
+            if (d > 0.999f) // Early out if virtually parallel
                 break;
         }
     }
     return (byte)best_idx;
 }
 
+/**
+ * @brief Constructs an individual sub-object alias mesh from Kingpin MDX geometry data.
+ *
+ * In Kingpin MDX models, a single model file can contain up to 8 distinct sub-objects
+ * (e.g. torso, headwear, limbs, attachments). This function extracts the triangles and
+ * vertices belonging to the specified sub-object ID, collapses redundant vertices sharing
+ * identical position and (s,t) coordinates, builds the indexed triangle mesh, allocates
+ * mesh hunk memory, and smooths normal discontinuities across coincident seam vertices.
+ *
+ * @param model Model structure holding the alias mesh.
+ * @param mesh Destination alias mesh structure to populate.
+ * @param obj Sub-object ID (0 to 7) to extract.
+ * @param vert_index Global vertex index array unpacked from GL commands.
+ * @param vert_s Normalized texture S coordinates.
+ * @param vert_t Normalized texture T coordinates.
+ * @param vert_obj Sub-object ID associated with each unpacked vertex reference.
+ * @param numindices Total count of vertex indices in the unpacked GL command stream.
+ * @param rawdata Pointer to the raw MDX file buffer.
+ * @param header Parsed MDX header structure.
+ * @return Q_ERR_SUCCESS on success, or an error code on failure.
+ */
 static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
                              const uint16_t *vert_index, const float *vert_s,
                              const float *vert_t, const byte *vert_obj,
@@ -562,6 +594,8 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
     for (i = 0; i < numindices; i++)
         remap[i] = 0xFFFF;
 
+    // Deduplicate vertices within this sub-object: vertices sharing the same XYZ index
+    // and (s,t) texture coordinates are merged to optimize GPU vertex buffer usage.
     local = 0;
     numverts = 0;
     for (i = 0; i < numindices; i++) {
@@ -601,6 +635,7 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
         return Q_ERR(ENOMEM);
     }
 
+    // Populate triangle element index buffer
     k = 0;
     for (i = 0; i < numindices; i++) {
         if (vert_obj[i] != obj)
@@ -608,6 +643,7 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
         mesh->indices[k++] = final_index[i];
     }
 
+    // Register all default embedded skins listed in the MDX header
     src_skin = (const char *)rawdata + header->ofs_skins;
     for (i = 0; i < (int)header->num_skins; i++) {
 #if USE_MD5
@@ -624,6 +660,7 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
         src_skin += MDX_MAX_SKINNAME;
     }
 
+    // Assign normalized UV texture coordinates
     for (i = 0; i < numindices; i++) {
         if (vert_obj[i] != obj || remap[i] != i)
             continue;
@@ -634,6 +671,7 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
     byte *norm_indices = Z_Malloc(numverts * sizeof(byte));
     bool *smoothed = Z_Malloc(numverts * sizeof(bool));
 
+    // Unpack compressed vertex positions and light normal indices for each keyframe
     src_frame = (const dmd2frame_t *)(rawdata + header->ofs_frames);
     for (j = 0; j < (int)header->num_frames; j++) {
         for (i = 0; i < numindices; i++) {
@@ -658,7 +696,10 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
             }
         }
 
-        // Smooth coincident seam vertex normals across mesh
+        // Smooth coincident seam vertex normals across the mesh:
+        // Kingpin player models have UV seam boundaries where identical 3D positions have
+        // split texture vertices and divergent raw normals. Averaging these coincident
+        // normals eliminates dark lighting cracks across body part seams.
         memset(smoothed, 0, numverts * sizeof(bool));
         for (i = 0; i < numverts; i++) {
             if (smoothed[i])
@@ -718,6 +759,19 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
     return Q_ERR_SUCCESS;
 }
 
+/**
+ * @brief Parses and loads a Kingpin .MDX triangle model from memory.
+ *
+ * Validates the MDX header, decodes the sub-object indexed GL command list into
+ * discrete triangles, separates the model into up to 8 sub-object meshes,
+ * calculates per-frame bounding boxes and culling sphere radii, and allocates
+ * the model structures on the hunk.
+ *
+ * @param model Destination model structure to initialize.
+ * @param rawdata Raw file bytes of the .mdx file.
+ * @param length Total file size in bytes.
+ * @return Q_ERR_SUCCESS on success, or an appropriate error code.
+ */
 static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
 {
     dmdxheader_t header;
@@ -745,6 +799,7 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         return Q_ERR_SUCCESS;
     }
 
+    // Rigorous bounds validation against header offsets and sizes
     err = NULL;
     if (header.num_xyz > MDX_MAX_VERTS || header.num_tris > MDX_MAX_TRIANGLES ||
         header.num_frames > MDX_MAX_FRAMES || header.num_skins > MDX_MAX_SKINS)
@@ -771,6 +826,11 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
     cmd_t = Z_Malloc(header.num_glcmds * sizeof(cmd_t[0]));
     numindices = 0;
 
+    // Decode OpenGL command stream:
+    // In MDX, commands begin with:
+    //   count: positive for GL_TRIANGLE_STRIP, negative for GL_TRIANGLE_FAN, 0 for end.
+    //   sub:   sub-object index (0..7) this strip/fan belongs to.
+    // Followed by |count| tuples of (s_float, t_float, vert_index_int32).
     cmd = (const int32_t *)((const byte *)rawdata + header.ofs_glcmds);
     cmdleft = header.num_glcmds;
     while (cmdleft && !err) {
@@ -813,6 +873,9 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         }
         if (err)
             break;
+
+        // Unroll triangle strip / fan into discrete triangle index triplets.
+        // Strips alternate winding order (base & 1) to maintain consistent CCW orientation.
         for (base = 0; base < num - 2; base++) {
             int order[3];
 
@@ -858,6 +921,7 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         return Q_ERR_INVALID_FORMAT;
     }
 
+    // Discover which sub-objects actually contain geometry (up to 8 sub-objects)
     {
         int objects[8], nobjects, m, ret;
 
@@ -900,6 +964,7 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
             return Q_ERR(ENOMEM);
         }
 
+        // Allocate and build each sub-object mesh
         for (m = 0; m < nobjects; m++) {
             ret = MOD_LoadMDXObject(model, &model->meshes[m], objects[m],
                                     vert_index, vert_s, vert_t, vert_obj,
@@ -917,6 +982,7 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         }
     }
 
+    // Compute bounding boxes and spherical culling radii across all meshes for each frame
     src_frame = (dmd2frame_t *)((byte *)rawdata + header.ofs_frames);
     dst_frame = model->frames;
     for (j = 0; j < (int)header.num_frames; j++) {
