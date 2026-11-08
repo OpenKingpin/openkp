@@ -1,0 +1,48 @@
+name: FreeBSD
+
+on:
+  push:
+    branches: [main, master, ci]
+  pull_request:
+    branches: [main, master]
+
+env:
+  MESON_ARGS: >-
+    --auto-features=enabled
+    --fatal-meson-warnings
+    -Dbase-game=main
+    -Dsave-games=false
+    -Danticheat-server=true
+    -Davcodec=disabled
+    -Dclient-gtv=true
+    -Dpacketdup-hack=true
+    -Dtests=false
+    -Dvariable-fps=true
+    -Dwerror=false
+  MESON_ARGS_FREEBSD: >-
+    -Dbuildtype=release
+    -Dc_std=c23
+    -Dicmp-errors=disabled
+    -Dwindows-crash-dumps=disabled
+    -Dwrap_mode=nofallback
+
+jobs:
+  freebsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        uses: cross-platform-actions/action@v0.29.0
+        with:
+          operating_system: freebsd
+          architecture: x86-64
+          version: '14.3'
+          run: |
+            echo "IGNORE_OSVERSION = yes;" | sudo tee -a /usr/local/etc/pkg.conf
+            sudo env IGNORE_OSVERSION=yes pkg update -f
+            sudo env IGNORE_OSVERSION=yes pkg install -y git meson pkgconf openal-soft             sdl2 curl png jpeg-turbo libX11 libdecor evdev-proto wayland-protocols
+            meson setup ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_FREEBSD }} builddir
+            meson compile -C builddir openkp

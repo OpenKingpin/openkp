@@ -1,0 +1,84 @@
+name: Windows
+
+on:
+  push:
+    branches: [main, master, ci]
+  pull_request:
+    branches: [main, master]
+
+env:
+  MESON_ARGS: >-
+    --auto-features=enabled
+    --fatal-meson-warnings
+    -Dbase-game=main
+    -Dsave-games=false
+    -Danticheat-server=true
+    -Davcodec=disabled
+    -Dclient-gtv=true
+    -Dpacketdup-hack=true
+    -Dtests=false
+    -Dvariable-fps=true
+    -Dwerror=false
+  MESON_ARGS_WIN: >-
+    -Dsdl2=disabled
+    -Dwayland=disabled
+    -Dwrap_mode=forcefallback
+    -Dx11=disabled
+
+jobs:
+  mingw:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: ["i686", "x86_64"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: subprojects/packagecache
+          key: ${{ hashFiles('subprojects/*.wrap') }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64 nasm meson ninja-build
+
+      - name: Build
+        run: |
+          meson setup --cross-file=.ci/${{ matrix.arch }}-w64-mingw32.txt           ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_WIN }} builddir
+          meson compile -C builddir openkp
+
+      - name: Upload Windows Binary Artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x86_64'
+        with:
+          name: openkp-windows-x64
+          path: builddir/openkp.exe
+
+  msvc:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: ["x86", "x64"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: subprojects/packagecache
+          key: ${{ hashFiles('subprojects/*.wrap') }}
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - uses: ilammy/setup-nasm@v1
+
+      - name: Install dependencies
+        run: pip3 install --no-input meson ninja
+
+      - name: Build
+        run: |
+          meson setup ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_WIN }} builddir
+          meson compile -C builddir

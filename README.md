@@ -9,6 +9,13 @@
   Built on the battle-tested Q2PRO engine foundation.
 </p>
 
+<p align="center">
+  <a href="https://github.com/OpenKingpin/openkp/actions/workflows/linux.yml?query=branch%3Amain"><img src="https://github.com/OpenKingpin/openkp/actions/workflows/linux.yml/badge.svg?branch=main" alt="Linux Build" /></a>
+  <a href="https://github.com/OpenKingpin/openkp/actions/workflows/windows.yml?query=branch%3Amain"><img src="https://github.com/OpenKingpin/openkp/actions/workflows/windows.yml/badge.svg?branch=main" alt="Windows Build" /></a>
+  <a href="https://github.com/OpenKingpin/openkp/actions/workflows/macos.yml?query=branch%3Amain"><img src="https://github.com/OpenKingpin/openkp/actions/workflows/macos.yml/badge.svg?branch=main" alt="macOS Build" /></a>
+  <a href="https://github.com/OpenKingpin/openkp/actions/workflows/freebsd.yml?query=branch%3Amain"><img src="https://github.com/OpenKingpin/openkp/actions/workflows/freebsd.yml/badge.svg?branch=main" alt="FreeBSD Build" /></a>
+</p>
+
 ---
 
 OpenKP is an unofficial open-source client designed to join existing community servers with modern hardware support, high tickrates, raw mouse input, widescreen scaling, and smooth client-side prediction—with zero server-side friction.

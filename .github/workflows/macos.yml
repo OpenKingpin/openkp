@@ -1,0 +1,45 @@
+name: macOS
+
+on:
+  push:
+    branches: [main, master, ci]
+  pull_request:
+    branches: [main, master]
+
+env:
+  MESON_ARGS: >-
+    --auto-features=enabled
+    --fatal-meson-warnings
+    -Dbase-game=main
+    -Dsave-games=false
+    -Danticheat-server=true
+    -Davcodec=disabled
+    -Dclient-gtv=true
+    -Dpacketdup-hack=true
+    -Dtests=false
+    -Dvariable-fps=true
+    -Dwerror=false
+  MESON_ARGS_MACOS: >-
+    -Dbuildtype=release
+    -Dicmp-errors=disabled
+    -Dpkg_config_path=/opt/homebrew/opt/openal-soft/lib/pkgconfig
+    -Dwayland=disabled
+    -Dwindows-crash-dumps=disabled
+    -Dwrap_mode=nofallback
+    -Dx11=disabled
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install meson sdl2 openal-soft libpng jpeg-turbo
+
+      - name: Build
+        run: |
+          meson setup ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_MACOS }} builddir
+          meson compile -C builddir

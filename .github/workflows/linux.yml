@@ -1,0 +1,52 @@
+name: Linux
+
+on:
+  push:
+    branches: [main, master, ci]
+  pull_request:
+    branches: [main, master]
+
+env:
+  MESON_ARGS: >-
+    --auto-features=enabled
+    --fatal-meson-warnings
+    -Dbase-game=main
+    -Dsave-games=false
+    -Danticheat-server=true
+    -Davcodec=disabled
+    -Dclient-gtv=true
+    -Dpacketdup-hack=true
+    -Dtests=false
+    -Dvariable-fps=true
+    -Dwerror=false
+  MESON_ARGS_LINUX: >-
+    -Dwindows-crash-dumps=disabled
+    -Dwrap_mode=nofallback
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson libsdl2-dev libopenal-dev           libpng-dev libjpeg-dev zlib1g-dev mesa-common-dev           libcurl4-gnutls-dev libx11-dev libxi-dev           libwayland-dev wayland-protocols libdecor-0-dev
+
+      - name: Build
+        run: |
+          meson setup ${{ env.MESON_ARGS }} ${{ env.MESON_ARGS_LINUX }} builddir
+          meson compile -C builddir openkp
+        env:
+          CC: ${{ matrix.cc }}
+
+      - name: Upload Linux Binary Artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.cc == 'gcc'
+        with:
+          name: openkp-linux-x86_64
+          path: builddir/openkp
