@@ -96,6 +96,12 @@ static cvar_t   *ch_alpha;
 static cvar_t   *ch_scale;
 static cvar_t   *ch_x;
 static cvar_t   *ch_y;
+static cvar_t   *ch_type;
+static cvar_t   *ch_size;
+static cvar_t   *ch_gap;
+static cvar_t   *ch_thickness;
+
+static cvar_t   *cl_bagman_alerts;
 
 static cvar_t   *scr_hit_marker_time;
 
@@ -1448,6 +1454,12 @@ void SCR_Init(void)
     ch_scale->changed = ch_scale_changed;
     ch_x = Cvar_Get("ch_x", "0", 0);
     ch_y = Cvar_Get("ch_y", "0", 0);
+    ch_type = Cvar_Get("ch_type", "0", CVAR_ARCHIVE);
+    ch_size = Cvar_Get("ch_size", "5", CVAR_ARCHIVE);
+    ch_gap = Cvar_Get("ch_gap", "3", CVAR_ARCHIVE);
+    ch_thickness = Cvar_Get("ch_thickness", "1", CVAR_ARCHIVE);
+
+    cl_bagman_alerts = Cvar_Get("cl_bagman_alerts", "1", CVAR_ARCHIVE);
 
     scr_draw2d = Cvar_Get("scr_draw2d", "2", 0);
     scr_showturtle = Cvar_Get("scr_showturtle", "1", 0);
@@ -1712,6 +1724,17 @@ static void HUD_DrawKingpinArmor(void)
  */
 static void HUD_DrawKingpinTeams(void)
 {
+    static int prev_flash1 = 0;
+    static int prev_flash2 = 0;
+    static int last_frame_num = 0;
+
+    // Reset tracking if map/session changed
+    if (cl.frame.number < last_frame_num) {
+        prev_flash1 = 0;
+        prev_flash2 = 0;
+    }
+    last_frame_num = cl.frame.number;
+
     // Team 1 (Dragons / Red)
     int score1 = cl.frame.ps.stats[STAT_KP_TEAM1_SCORE];
     int flash1 = cl.frame.ps.stats[STAT_KP_TEAM1_FLASH];
@@ -1755,6 +1778,20 @@ static void HUD_DrawKingpinTeams(void)
     if (flash2 == 2 && (((cl.frame.number / CL_FRAMEDIV) >> 1) & 1)) {
         HUD_DrawAltString(scr.hud_width - 115, 6, "BAG STOLEN!");
     }
+
+    if (cl_bagman_alerts && cl_bagman_alerts->integer) {
+        if (flash1 == 2 && prev_flash1 != 2)
+            S_StartLocalSound("world/alarm.wav");
+        else if (flash1 == 1 && prev_flash1 != 1)
+            S_StartLocalSound("world/pickups/cash.wav");
+
+        if (flash2 == 2 && prev_flash2 != 2)
+            S_StartLocalSound("world/alarm.wav");
+        else if (flash2 == 1 && prev_flash2 != 1)
+            S_StartLocalSound("world/pickups/cash.wav");
+    }
+    prev_flash1 = flash1;
+    prev_flash2 = flash2;
 }
 
 /**
@@ -2678,23 +2715,64 @@ static void SCR_DrawHitMarker(void)
 
 static void SCR_DrawCrosshair(void)
 {
-    int x, y;
-
     if (!scr_crosshair->integer)
         return;
     if (cl.frame.ps.stats[STAT_LAYOUTS] & (LAYOUTS_HIDE_HUD | LAYOUTS_HIDE_CROSSHAIR))
         return;
 
-    x = (scr.hud_width - scr.crosshair_width) / 2;
-    y = (scr.hud_height - scr.crosshair_height) / 2;
+    int cx = scr.hud_width / 2 + ch_x->integer;
+    int cy = scr.hud_height / 2 + ch_y->integer;
 
-    R_SetColor(scr.crosshair_color.u32);
+    if (ch_type && ch_type->integer > 0) {
+        int s = max(1, ch_size->integer);
+        int g = max(0, ch_gap->integer);
+        int t = max(1, ch_thickness->integer);
+        int tofs = t / 2;
+        uint32_t color = scr.crosshair_color.u32;
 
-    R_DrawStretchPic(x + ch_x->integer,
-                     y + ch_y->integer,
-                     scr.crosshair_width,
-                     scr.crosshair_height,
-                     scr.crosshair_pic);
+        switch (ch_type->integer) {
+        case 1: // Dot
+            R_DrawFill32(cx - s / 2, cy - s / 2, s, s, color);
+            break;
+        case 2: // Cross with gap
+            R_DrawFill32(cx - tofs, cy - g - s, t, s, color); // top
+            R_DrawFill32(cx - tofs, cy + g + 1, t, s, color); // bottom
+            R_DrawFill32(cx - g - s, cy - tofs, s, t, color); // left
+            R_DrawFill32(cx + g + 1, cy - tofs, s, t, color); // right
+            break;
+        case 3: // Cross + center dot
+            R_DrawFill32(cx - tofs, cy - g - s, t, s, color); // top
+            R_DrawFill32(cx - tofs, cy + g + 1, t, s, color); // bottom
+            R_DrawFill32(cx - g - s, cy - tofs, s, t, color); // left
+            R_DrawFill32(cx + g + 1, cy - tofs, s, t, color); // right
+            R_DrawFill32(cx - tofs, cy - tofs, t, t, color);  // dot
+            break;
+        case 4: // Box / brackets
+            R_DrawFill32(cx - g - s, cy - g - s, s, t, color);
+            R_DrawFill32(cx - g - s, cy - g - s, t, s, color);
+            R_DrawFill32(cx + g + 1, cy - g - s, s, t, color);
+            R_DrawFill32(cx + g + s - t + 1, cy - g - s, t, s, color);
+            R_DrawFill32(cx - g - s, cy + g + s - t + 1, s, t, color);
+            R_DrawFill32(cx - g - s, cy + g + 1, t, s, color);
+            R_DrawFill32(cx + g + 1, cy + g + s - t + 1, s, t, color);
+            R_DrawFill32(cx + g + s - t + 1, cy + g + 1, t, s, color);
+            break;
+        default:
+            R_DrawFill32(cx - s / 2, cy - s / 2, s, s, color);
+            break;
+        }
+    } else {
+        int x = (scr.hud_width - scr.crosshair_width) / 2;
+        int y = (scr.hud_height - scr.crosshair_height) / 2;
+
+        R_SetColor(scr.crosshair_color.u32);
+
+        R_DrawStretchPic(x + ch_x->integer,
+                         y + ch_y->integer,
+                         scr.crosshair_width,
+                         scr.crosshair_height,
+                         scr.crosshair_pic);
+    }
 
     SCR_DrawHitMarker();
 }

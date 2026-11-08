@@ -687,6 +687,17 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
     models[2] = ci->kp_head;
     skins[2] = ci->kp_head_skin;
 
+    uint64_t orig_flags = ent->flags;
+    if (cl_player_shells && cl_player_shells->integer > 0 && client != cl.clientNum) {
+        switch (cl_player_shells->integer) {
+        case 1: ent->flags |= RF_SHELL_RED; break;
+        case 2: ent->flags |= RF_SHELL_GREEN; break;
+        case 3: ent->flags |= RF_SHELL_BLUE; break;
+        case 4: ent->flags |= RF_SHELL_DOUBLE; break;
+        case 5: ent->flags |= RF_SHELL_LITE_GREEN; break;
+        }
+    }
+
     for (i = 0; i < 3; i++) {
         if (!models[i])
             continue;
@@ -696,6 +707,7 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
         ent->hidden_parts = s1->model_parts[i].invisible_objects;
         V_AddEntity(ent);
     }
+    ent->flags = orig_flags;
 
     // Attach Kingpin visual weapon model (vwep / model_parts[3])
     if (s1->model_parts[3].modelindex > 0 && s1->model_parts[3].modelindex < MODELINDEX_PLAYER) {
@@ -794,16 +806,18 @@ static void CL_AddPacketEntities(void)
             renderfx |= RF_SHELL_BLUE;
         }
 
-        if (effects & EF_DOUBLE) {
-            effects &= ~EF_DOUBLE;
-            effects |= EF_COLOR_SHELL;
-            renderfx |= RF_SHELL_DOUBLE;
-        }
+        if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN) {
+            if (effects & EF_DOUBLE) {
+                effects &= ~EF_DOUBLE;
+                effects |= EF_COLOR_SHELL;
+                renderfx |= RF_SHELL_DOUBLE;
+            }
 
-        if (effects & EF_HALF_DAMAGE) {
-            effects &= ~EF_HALF_DAMAGE;
-            effects |= EF_COLOR_SHELL;
-            renderfx |= RF_SHELL_HALF_DAM;
+            if (effects & EF_HALF_DAMAGE) {
+                effects &= ~EF_HALF_DAMAGE;
+                effects |= EF_COLOR_SHELL;
+                renderfx |= RF_SHELL_HALF_DAM;
+            }
         }
 
         if (s1->morefx & EFX_DUALFIRE) {
@@ -864,7 +878,7 @@ static void CL_AddPacketEntities(void)
         if (!cl_gibs->integer) {
             if (effects & EF_GIB && !(cl.csr.extended && effects & EF_ROCKET))
                 goto skip;
-            if (effects & EF_GREENGIB)
+            if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && (effects & EF_GREENGIB))
                 goto skip;
         }
 
@@ -1029,6 +1043,13 @@ static void CL_AddPacketEntities(void)
             CL_AdvanceValue(&cent->flashlightfrac, trace.fraction, 1);
         }
 
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            if ((s1->renderfx2 & (RF2_FLAMETHROWER | RF2_FLAMESHOOTER)) ||
+                (effects & EF_KP_FLAMETHROWER)) {
+                CL_FlameEffects(cent, &ent);
+            }
+        }
+
         if (s1->morefx & EFX_GRENADE_LIGHT)
             V_AddLight(ent.origin, 100, 1, 1, 0);
 
@@ -1037,9 +1058,9 @@ static void CL_AddPacketEntities(void)
                 V_AddLight(ent.origin, 225, 1.0f, 0.1f, 0.1f);
             else if (effects & EF_FLAG2)
                 V_AddLight(ent.origin, 225, 0.1f, 0.1f, 1.0f);
-            else if (effects & EF_TAGTRAIL)
+            else if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && (effects & EF_TAGTRAIL))
                 V_AddLight(ent.origin, 225, 1.0f, 1.0f, 0.0f);
-            else if (effects & EF_TRACKERTRAIL)
+            else if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && (effects & EF_TRACKERTRAIL))
                 V_AddLight(ent.origin, 225, -1.0f, -1.0f, -1.0f);
             goto skip;
         }
@@ -1061,7 +1082,7 @@ static void CL_AddPacketEntities(void)
             ent.alpha = 0.6f;
         }
 
-        if (effects & EF_SPHERETRANS) {
+        if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && (effects & EF_SPHERETRANS)) {
             ent.flags |= RF_TRANSLUCENT;
             if (effects & EF_TRACKERTRAIL)
                 ent.alpha = 0.6f;
@@ -1094,9 +1115,13 @@ static void CL_AddPacketEntities(void)
         }
 
         // tracker effect is duplicated for linked models
-        if (IS_TRACKER(effects)) {
+        if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && IS_TRACKER(effects)) {
             ent.flags    |= RF_TRACKER;
             custom_flags |= RF_TRACKER;
+        }
+
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && (effects & EF_KP_REFL)) {
+            ent.flags |= RF_REFL_MAP;
         }
 
         ent.scale = s1->scale;
@@ -1227,6 +1252,12 @@ static void CL_AddPacketEntities(void)
 
         if (s1->morefx & EFX_HOLOGRAM)
             CL_HologramParticles(ent.origin);
+
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            // Mask out Quake 2 mission pack effects that collide with Kingpin flags
+            // (e.g. Kingpin EF_KP_REFL collides with Q2 EF_TRACKER which causes negative dlight pitch-black spots at weapon spawns)
+            effects &= ~(EF_TRACKER | EF_TRACKERTRAIL | EF_TAGTRAIL | EF_GREENGIB);
+        }
 
         // add automatic particle trails
         if (!(effects & EF_TRAIL_MASK))
@@ -1363,10 +1394,12 @@ static int shell_effect_hack(const centity_t *ent)
         flags |= RF_SHELL_RED;
     if (ent->current.effects & EF_QUAD)
         flags |= RF_SHELL_BLUE;
-    if (ent->current.effects & EF_DOUBLE)
-        flags |= RF_SHELL_DOUBLE;
-    if (ent->current.effects & EF_HALF_DAMAGE)
-        flags |= RF_SHELL_HALF_DAM;
+    if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN) {
+        if (ent->current.effects & EF_DOUBLE)
+            flags |= RF_SHELL_DOUBLE;
+        if (ent->current.effects & EF_HALF_DAMAGE)
+            flags |= RF_SHELL_HALF_DAM;
+    }
 
     if (cl.csr.extended) {
         if (ent->current.morefx & EFX_DUALFIRE)

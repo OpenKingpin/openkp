@@ -225,7 +225,7 @@ static void CL_PredictAudioKingpin(const pmove_t *pm, qboolean was_on_ground, qb
                 float dx = cur_origin[0] - old_origin[0];
                 float dy = cur_origin[1] - old_origin[1];
                 float dist = sqrtf(dx * dx + dy * dy);
-                if (dist > 0.0f && dist < 100.0f) {
+                if (dist > 0.1f && dist < 100.0f) {
                     cl.predicted_step_dist += dist;
                     float step_threshold = (pm->s.pm_flags & PMF_DUCKED) ? 36.0f : 60.0f;
                     if (cl.predicted_step_dist >= step_threshold) {
@@ -235,6 +235,8 @@ static void CL_PredictAudioKingpin(const pmove_t *pm, qboolean was_on_ground, qb
                             surf_type = CL_TraceSurfaceFootstep(cur_origin, pm->mins, pm->maxs);
                         CL_PlayKingpinFootstep(cl.clientNum + 1, surf_type, 0.5f, ATTN_NORM);
                     }
+                } else if (dist <= 0.1f) {
+                    cl.predicted_step_dist = 0.0f;
                 }
             }
         } else {
@@ -366,6 +368,10 @@ void CL_PredictMovement(void)
     pm.s = cl.frame.ps.pmove;
     pm.snapinitial = qtrue;
 
+    if (cl.predicted_sound_cmd < ack || cl.predicted_sound_cmd > current) {
+        cl.predicted_sound_cmd = ack;
+    }
+
     // run frames
     while (++ack <= current) {
         qboolean was_on_ground = (pm.s.pm_flags & PMF_ON_GROUND) != 0;
@@ -382,9 +388,6 @@ void CL_PredictMovement(void)
         VectorCopy(pm.s.origin, cl.predicted_origins[ack & CMD_MASK]);
 
         if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
-            if (cl.predicted_sound_cmd == 0 || ack < cl.predicted_sound_cmd || ack - cl.predicted_sound_cmd > CMD_BACKUP)
-                cl.predicted_sound_cmd = ack - 1;
-
             if (ack > cl.predicted_sound_cmd) {
                 cl.predicted_sound_cmd = ack;
                 CL_PredictAudioKingpin(&pm, was_on_ground, was_ladder, pre_z_vel, old_origin);

@@ -57,6 +57,7 @@ list_t      s_freeplays;
 list_t      s_pendingplays;
 
 cvar_t      *s_volume;
+cvar_t      *s_volume_voice;
 cvar_t      *s_ambient;
 #if USE_DEBUG
 cvar_t      *s_show;
@@ -137,7 +138,7 @@ S_Init
 */
 void S_Init(void)
 {
-    s_enable = Cvar_Get("s_enable", "1", CVAR_SOUND);
+    s_enable = Cvar_Get("s_enable", "1", CVAR_ARCHIVE | CVAR_SOUND);
     if (s_enable->integer <= SS_NOT) {
         Com_Printf("Sound initialization disabled.\n");
         return;
@@ -146,6 +147,7 @@ void S_Init(void)
     Com_Printf("------- S_Init -------\n");
 
     s_volume = Cvar_Get("s_volume", "0.7", CVAR_ARCHIVE);
+    s_volume_voice = Cvar_Get("s_volume_voice", "1.0", CVAR_ARCHIVE);
     s_ambient = Cvar_Get("s_ambient", "1", 0);
 #if USE_DEBUG
     s_show = Cvar_Get("s_show", "0", 0);
@@ -713,6 +715,12 @@ void S_StartSound(const vec3_t origin, int entnum, int entchannel, qhandle_t hSf
     sc = S_LoadSound(sfx);
     if (!sc)
         return;     // couldn't load the sound's data
+
+    if ((entchannel & 7) == CHAN_VOICE && s_volume_voice) {
+        vol *= Cvar_ClampValue(s_volume_voice, 0.0f, 2.0f);
+        if (vol <= 0.0f)
+            return;
+    }
 
     // make the playsound_t
     ps = S_AllocPlaysound();

@@ -186,7 +186,7 @@ int QAL_Init(void)
     int i;
 
     al_device = Cvar_Get("al_device", "", 0);
-    al_hrtf = Cvar_Get("al_hrtf", "0", 0);
+    al_hrtf = Cvar_Get("al_hrtf", "1", 0);
 
     for (i = 0; i < q_countof(al_drivers); i++) {
         Com_DPrintf("Trying %s\n", al_drivers[i]);

@@ -37,12 +37,18 @@ typedef bool (*SteamAPI_Init_fn)(void);
 typedef void (*SteamAPI_Shutdown_fn)(void);
 typedef void (*SteamAPI_RunCallbacks_fn)(void);
 typedef bool (*SteamAPI_IsSteamRunning_fn)(void);
+typedef void *(*SteamFriends_fn)(void);
+typedef bool (*SteamAPI_ISteamFriends_SetRichPresence_fn)(void *self, const char *pchKey, const char *pchValue);
+typedef void (*SteamAPI_ISteamFriends_ClearRichPresence_fn)(void *self);
 
 static void *steam_handle = NULL;
 static SteamAPI_Init_fn pfnSteamAPI_Init = NULL;
 static SteamAPI_Shutdown_fn pfnSteamAPI_Shutdown = NULL;
 static SteamAPI_RunCallbacks_fn pfnSteamAPI_RunCallbacks = NULL;
 static SteamAPI_IsSteamRunning_fn pfnSteamAPI_IsSteamRunning = NULL;
+static SteamFriends_fn pfnSteamFriends = NULL;
+static SteamAPI_ISteamFriends_SetRichPresence_fn pfnSteamAPI_ISteamFriends_SetRichPresence = NULL;
+static SteamAPI_ISteamFriends_ClearRichPresence_fn pfnSteamAPI_ISteamFriends_ClearRichPresence = NULL;
 
 static bool steam_active = false;
 static cvar_t *cl_steam;
@@ -80,11 +86,34 @@ void CL_Steam_Init(void)
     _putenv("SteamAppId=" KINGPIN_STEAM_APPID_STR);
     _putenv("SteamGameId=" KINGPIN_STEAM_APPID_STR);
 #else
-    setenv("SteamAppId", KINGPIN_STEAM_APPID_STR, 0);
-    setenv("SteamGameId", KINGPIN_STEAM_APPID_STR, 0);
+    setenv("SteamAppId", KINGPIN_STEAM_APPID_STR, 1);
+    setenv("SteamGameId", KINGPIN_STEAM_APPID_STR, 1);
 #endif
 
-    // If steam_appid.txt is missing in the current working directory, create it
+    // Get executable directory
+    char exe_path[MAX_OSPATH];
+    char exe_dir[MAX_OSPATH] = {0};
+    if (Sys_GetBinaryPath(exe_path, sizeof(exe_path))) {
+        char exe_name[MAX_OSPATH];
+        COM_SplitPath(exe_path, exe_name, sizeof(exe_name), exe_dir, sizeof(exe_dir), false);
+        size_t dirlen = strlen(exe_dir);
+        if (dirlen > 0 && (exe_dir[dirlen - 1] == '/' || exe_dir[dirlen - 1] == '\\')) {
+            exe_dir[dirlen - 1] = '\0';
+        }
+    }
+
+    // If steam_appid.txt is missing in the executable directory or cwd, create it
+    if (exe_dir[0]) {
+        char appid_path[MAX_OSPATH];
+        Q_snprintf(appid_path, sizeof(appid_path), "%s/steam_appid.txt", exe_dir);
+        if (!FS_FileExists(appid_path)) {
+            FILE *f = fopen(appid_path, "w");
+            if (f) {
+                fputs(KINGPIN_STEAM_APPID_STR "\n", f);
+                fclose(f);
+            }
+        }
+    }
     if (!FS_FileExists("steam_appid.txt")) {
         FILE *f = fopen("steam_appid.txt", "w");
         if (f) {
@@ -113,6 +142,15 @@ void CL_Steam_Init(void)
 
     // Try loading Steam API dynamically
     for (int i = 0; steam_libs[i]; i++) {
+        // Try executable directory first
+        if (exe_dir[0]) {
+            char path[MAX_OSPATH];
+            Q_snprintf(path, sizeof(path), "%s/%s", exe_dir, steam_libs[i]);
+            Sys_LoadLibrary(path, NULL, &steam_handle);
+            if (steam_handle)
+                break;
+        }
+
         // Direct / system load
         Sys_LoadLibrary(steam_libs[i], NULL, &steam_handle);
         if (steam_handle)
@@ -132,7 +170,7 @@ void CL_Steam_Init(void)
         if (steam_handle)
             break;
 
-        // Try sys_libdir (executable directory)
+        // Try sys_libdir
         if (sys_libdir && sys_libdir->string[0]) {
             char lib_path[MAX_QPATH];
             Q_snprintf(lib_path, sizeof(lib_path), "%s/%s", sys_libdir->string, steam_libs[i]);
@@ -149,6 +187,31 @@ void CL_Steam_Init(void)
             if (steam_handle)
                 break;
         }
+
+#if !defined(_WIN32)
+        // Probe user Steam client / runtime directories on Linux
+        const char *home = getenv("HOME");
+        if (home) {
+            static const char *const steam_home_subdirs[] = {
+                ".steam/debian-installation/linux64",
+                ".steam/steam/linux64",
+                ".local/share/Steam/linux64",
+                ".steam/debian-installation/steamapps/common/sbox/bin/linuxsteamrt64",
+                ".steam/debian-installation/steamapps/common/Kingpin",
+                ".steam/steam/steamapps/common/Kingpin",
+                NULL
+            };
+            for (int s = 0; steam_home_subdirs[s]; s++) {
+                char user_path[MAX_OSPATH];
+                Q_snprintf(user_path, sizeof(user_path), "%s/%s/%s", home, steam_home_subdirs[s], steam_libs[i]);
+                Sys_LoadLibrary(user_path, NULL, &steam_handle);
+                if (steam_handle)
+                    break;
+            }
+            if (steam_handle)
+                break;
+        }
+#endif
     }
 
     if (!steam_handle) {
@@ -162,6 +225,28 @@ void CL_Steam_Init(void)
     pfnSteamAPI_Shutdown = (SteamAPI_Shutdown_fn)Sys_GetProcAddress(steam_handle, "SteamAPI_Shutdown");
     pfnSteamAPI_RunCallbacks = (SteamAPI_RunCallbacks_fn)Sys_GetProcAddress(steam_handle, "SteamAPI_RunCallbacks");
     pfnSteamAPI_IsSteamRunning = (SteamAPI_IsSteamRunning_fn)Sys_GetProcAddress(steam_handle, "SteamAPI_IsSteamRunning");
+
+    static const char *const friends_entrypoints[] = {
+        "SteamAPI_SteamFriends_v018",
+        "SteamAPI_SteamFriends_v017",
+        "SteamAPI_SteamFriends_v016",
+        "SteamAPI_SteamFriends_v015",
+        "SteamAPI_SteamFriends_v014",
+        "SteamAPI_SteamFriends_v013",
+        "SteamAPI_SteamFriends_v012",
+        "SteamAPI_SteamFriends_v011",
+        "SteamFriends",
+        NULL
+    };
+    for (int i = 0; friends_entrypoints[i]; i++) {
+        pfnSteamFriends = (SteamFriends_fn)Sys_GetProcAddress(steam_handle, friends_entrypoints[i]);
+        if (pfnSteamFriends)
+            break;
+    }
+    pfnSteamAPI_ISteamFriends_SetRichPresence = (SteamAPI_ISteamFriends_SetRichPresence_fn)
+        Sys_GetProcAddress(steam_handle, "SteamAPI_ISteamFriends_SetRichPresence");
+    pfnSteamAPI_ISteamFriends_ClearRichPresence = (SteamAPI_ISteamFriends_ClearRichPresence_fn)
+        Sys_GetProcAddress(steam_handle, "SteamAPI_ISteamFriends_ClearRichPresence");
 
     if (!pfnSteamAPI_Init || !pfnSteamAPI_Shutdown || !pfnSteamAPI_RunCallbacks) {
         Com_DPrintf("[Steam] Failed to resolve Steamworks entry points.\n");
@@ -189,14 +274,64 @@ void CL_Steam_Init(void)
 }
 
 /**
+ * @brief Updates Steam Rich Presence status and joinable connect string.
+ */
+void CL_Steam_UpdateRichPresence(const char *status, const char *connect)
+{
+    if (!steam_active || !pfnSteamFriends || !pfnSteamAPI_ISteamFriends_SetRichPresence)
+        return;
+
+    void *pFriends = pfnSteamFriends();
+    if (!pFriends)
+        return;
+
+    if (status && status[0]) {
+        pfnSteamAPI_ISteamFriends_SetRichPresence(pFriends, "status", status);
+        pfnSteamAPI_ISteamFriends_SetRichPresence(pFriends, "steam_display", "#StatusWithoutScore");
+    } else {
+        if (pfnSteamAPI_ISteamFriends_ClearRichPresence)
+            pfnSteamAPI_ISteamFriends_ClearRichPresence(pFriends);
+    }
+
+    if (connect && connect[0]) {
+        pfnSteamAPI_ISteamFriends_SetRichPresence(pFriends, "connect", connect);
+    } else {
+        pfnSteamAPI_ISteamFriends_SetRichPresence(pFriends, "connect", "");
+    }
+}
+
+/**
  * @brief Pumps Steamworks asynchronous callback dispatch once per client frame.
  *
- * Dispatches Steam callbacks for friend invites, auth tickets, and overlay states.
+ * Dispatches Steam callbacks for friend invites, auth tickets, and overlay states,
+ * and maintains rich presence for server and map status.
  */
 void CL_Steam_Frame(void)
 {
     if (steam_active && pfnSteamAPI_RunCallbacks) {
         pfnSteamAPI_RunCallbacks();
+    }
+
+    static int last_state = -1;
+    static char last_server[MAX_QPATH] = {0};
+
+    if (steam_active && (cls.state != last_state || strcmp(cls.servername, last_server) != 0)) {
+        last_state = cls.state;
+        Q_strlcpy(last_server, cls.servername, sizeof(last_server));
+
+        if (cls.state == ca_active) {
+            char map[MAX_QPATH];
+            const char *raw_map = cl.configstrings[CS_MODELS + 1];
+            COM_StripExtension(map, COM_SkipPath(raw_map), sizeof(map));
+            const char *servername = cl.configstrings[CS_NAME][0] ? cl.configstrings[CS_NAME] : cls.servername;
+            char status[MAX_STRING_CHARS];
+            Q_snprintf(status, sizeof(status), "%s (%s)", servername, map[0] ? map : "unknown");
+            char connect[MAX_STRING_CHARS];
+            Q_snprintf(connect, sizeof(connect), "+connect %s", cls.servername);
+            CL_Steam_UpdateRichPresence(status, connect);
+        } else if (cls.state == ca_disconnected) {
+            CL_Steam_UpdateRichPresence("In Main Menu", NULL);
+        }
     }
 }
 
@@ -206,6 +341,7 @@ void CL_Steam_Frame(void)
 void CL_Steam_Shutdown(void)
 {
     if (steam_active) {
+        CL_Steam_UpdateRichPresence(NULL, NULL);
         if (pfnSteamAPI_Shutdown)
             pfnSteamAPI_Shutdown();
         steam_active = false;
@@ -221,4 +357,7 @@ void CL_Steam_Shutdown(void)
     pfnSteamAPI_Shutdown = NULL;
     pfnSteamAPI_RunCallbacks = NULL;
     pfnSteamAPI_IsSteamRunning = NULL;
+    pfnSteamFriends = NULL;
+    pfnSteamAPI_ISteamFriends_SetRichPresence = NULL;
+    pfnSteamAPI_ISteamFriends_ClearRichPresence = NULL;
 }

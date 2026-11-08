@@ -47,6 +47,15 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 static pthread_t main_thread;
 #endif
 
+#if defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
+static int saved_argc;
+static char **saved_argv;
+
 cvar_t  *sys_basedir;
 cvar_t  *sys_libdir;
 cvar_t  *sys_homedir;
@@ -575,6 +584,82 @@ void Sys_ListFiles_r(listfiles_t *list, const char *path, int depth)
     closedir(dir);
 }
 
+bool Sys_GetBinaryPath(char *path, size_t size)
+{
+#if defined(__linux__)
+    ssize_t len = readlink("/proc/self/exe", path, size - 1);
+    if (len > 0) {
+        path[len] = '\0';
+        return true;
+    }
+#elif defined(__FreeBSD__)
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+    size_t len = size;
+    if (sysctl(mib, 4, path, &len, NULL, 0) == 0) {
+        return true;
+    }
+#elif defined(__APPLE__)
+    uint32_t len = (uint32_t)size;
+    if (_NSGetExecutablePath(path, &len) == 0) {
+        return true;
+    }
+#endif
+    return false;
+}
+
+void Sys_CleanOldBinary(void)
+{
+    char exe_path[MAX_OSPATH];
+    if (Sys_GetBinaryPath(exe_path, sizeof(exe_path))) {
+        char old_path[MAX_OSPATH];
+        Q_snprintf(old_path, sizeof(old_path), "%s.old", exe_path);
+        unlink(old_path);
+    }
+}
+
+bool Sys_ApplyUpdateAndRestart(const char *temp_binary_path)
+{
+    char exe_path[MAX_OSPATH];
+    if (!Sys_GetBinaryPath(exe_path, sizeof(exe_path))) {
+        Com_EPrintf("Sys_ApplyUpdateAndRestart: Could not determine current binary path\n");
+        return false;
+    }
+
+    char old_path[MAX_OSPATH];
+    Q_snprintf(old_path, sizeof(old_path), "%s.old", exe_path);
+
+    unlink(old_path);
+    if (rename(exe_path, old_path) != 0) {
+        Com_EPrintf("Sys_ApplyUpdateAndRestart: rename(%s, %s) failed: %s\n",
+                    exe_path, old_path, strerror(errno));
+        return false;
+    }
+
+    if (rename(temp_binary_path, exe_path) != 0) {
+        Com_EPrintf("Sys_ApplyUpdateAndRestart: rename(%s, %s) failed: %s\n",
+                    temp_binary_path, exe_path, strerror(errno));
+        // rollback
+        rename(old_path, exe_path);
+        return false;
+    }
+
+    chmod(exe_path, 0755);
+    unlink(old_path);
+
+    Com_Printf("Applying update and restarting OpenKP...\n");
+
+    if (saved_argv) {
+        execv(exe_path, saved_argv);
+    } else {
+        char *const fallback_args[] = { exe_path, NULL };
+        execv(exe_path, fallback_args);
+    }
+
+    Com_EPrintf("Sys_ApplyUpdateAndRestart: execv failed: %s\n", strerror(errno));
+    Sys_Quit();
+    return true;
+}
+
 /*
 =================
 main
@@ -582,6 +667,8 @@ main
 */
 int main(int argc, char **argv)
 {
+    saved_argc = argc;
+    saved_argv = argv;
     if (argc > 1) {
         if (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version")) {
             fprintf(stderr, "%s\n", com_version_string);

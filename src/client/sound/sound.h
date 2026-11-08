@@ -164,6 +164,7 @@ extern list_t       s_pendingplays;
 extern wavinfo_t    s_info;
 
 extern cvar_t       *s_volume;
+extern cvar_t       *s_volume_voice;
 extern cvar_t       *s_ambient;
 #if USE_DEBUG
 extern cvar_t       *s_show;

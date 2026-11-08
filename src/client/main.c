@@ -40,6 +40,7 @@ cvar_t  *cl_autopause;
 cvar_t  *cl_kickangles;
 cvar_t  *cl_rollhack;
 cvar_t  *cl_noglow;
+cvar_t  *cl_player_shells;
 cvar_t  *cl_nobob;
 cvar_t  *cl_nolerp;
 
@@ -331,6 +332,14 @@ bool CL_ForwardToServer(void)
     if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
         if (cls.state < ca_connected)
             return false;
+
+        // Kingpin servers convert any unrecognized client command into public chat (Cmd_Say_f).
+        // Only forward commands that are registered server commands to prevent bogus binds
+        // or typos from leaking into chat. Arbitrary commands can still be forwarded with 'cmd <args>'.
+        if (!Cmd_Exists(cmd)) {
+            return false;
+        }
+
         char *args = Cmd_Args();
         if (args && *args)
             CL_ClientCommand(va("%s %s", cmd, args));
@@ -420,9 +429,9 @@ void CL_CheckForResend(void)
         strcpy(cls.servername, "localhost");
         cls.serverAddress.type = NA_LOOPBACK;
         cls.serverProtocol = cl_protocol->integer;
-        if (cls.serverProtocol < PROTOCOL_VERSION_DEFAULT ||
+        if (cls.serverProtocol < PROTOCOL_VERSION_KINGPIN ||
             cls.serverProtocol > PROTOCOL_VERSION_Q2PRO) {
-            cls.serverProtocol = PROTOCOL_VERSION_Q2PRO;
+            cls.serverProtocol = PROTOCOL_VERSION_KINGPIN;
         }
 
         // we don't need a challenge on the localhost
@@ -1309,7 +1318,7 @@ static void CL_ConnectionlessPacket(void)
         }
 
         if (!cls.serverProtocol) {
-            cls.serverProtocol = PROTOCOL_VERSION_Q2PRO;
+            cls.serverProtocol = PROTOCOL_VERSION_KINGPIN;
         }
 
         // kpded2 does not advertise Q2PRO or R1Q2. Fall back to Kingpin
@@ -2698,6 +2707,44 @@ static void CL_InvenDrop_f(void)
     Cbuf_AddText(&cmd_buffer, "invdrop\n");
 }
 
+static float prev_zoom_fov = 90.0f;
+
+static void CL_Scope_f(void)
+{
+    if (info_fov && info_fov->value <= 45.0f) {
+        Cvar_SetValue(info_fov, prev_zoom_fov > 45.0f ? prev_zoom_fov : 90.0f, FROM_CODE);
+    } else {
+        if (info_fov)
+            prev_zoom_fov = info_fov->value;
+        if (info_fov)
+            Cvar_SetValue(info_fov, 35.0f, FROM_CODE);
+    }
+}
+
+static void CL_ZoomDown_f(void)
+{
+    if (info_fov) {
+        prev_zoom_fov = info_fov->value;
+        Cvar_SetValue(info_fov, 35.0f, FROM_CODE);
+    }
+}
+
+static void CL_ZoomUp_f(void)
+{
+    if (info_fov)
+        Cvar_SetValue(info_fov, prev_zoom_fov > 45.0f ? prev_zoom_fov : 90.0f, FROM_CODE);
+}
+
+static void CL_Save_f(void)
+{
+    Com_Printf("Saving is not supported in multiplayer.\n");
+}
+
+static void CL_Load_f(void)
+{
+    Com_Printf("Loading is not supported in multiplayer.\n");
+}
+
 static const cmdreg_t c_client[] = {
     { "cmd", CL_ForwardToServer_f },
     { "pause", CL_Pause_f },
@@ -2720,6 +2767,11 @@ static const cmdreg_t c_client[] = {
     { "vid_restart", CL_RestartRefresh_f },
     { "r_reload", CL_ReloadRefresh_f },
     { "inven_drop", CL_InvenDrop_f },
+    { "scope", CL_Scope_f },
+    { "+zoom", CL_ZoomDown_f },
+    { "-zoom", CL_ZoomUp_f },
+    { "save", CL_Save_f },
+    { "load", CL_Load_f },
 
     //
     // forward to server commands
@@ -2734,10 +2786,15 @@ static const cmdreg_t c_client[] = {
     { "drop", NULL, CL_Item_c }, { "info" }, { "prog" },
     { "give", NULL, CL_Item_c }, { "god" }, { "notarget" }, { "noclip" },
     { "invuse" }, { "invprev" }, { "invnext" }, { "invdrop" },
-    { "weapnext" }, { "weapprev" },
+    { "weapnext" }, { "weapprev" }, { "weaplast" },
     { "hud" }, { "holster" }, { "flashlight" }, { "reload" },
     { "key1" }, { "key2" }, { "key3" }, { "immortal" },
     { "invnextw" }, { "invprevw" }, { "invnextp" }, { "invprevp" },
+    { "players" }, { "score" }, { "help" }, { "putaway" },
+    { "vote" }, { "yes" }, { "no" }, { "join" }, { "team" }, { "spec" }, { "spectator" },
+    { "togglecam" }, { "showprops" }, { "hideprops" }, { "extracrispy" }, { "spawn" },
+    { "ready" }, { "notready" }, { "stats" }, { "match" }, { "admin" }, { "login" },
+    { "dropcash" }, { "callvote" }, { "id" }, { "maplist" }, { "motd" }, { "timeleft" },
 
     { NULL }
 };
@@ -2753,6 +2810,7 @@ static void CL_InitLocal(void)
     int i;
 
     cls.state = ca_disconnected;
+    cls.serverProtocol = PROTOCOL_VERSION_KINGPIN;
     cls.connect_time -= CONNECT_INSTANT;
 
     CL_InitDemos();
@@ -2797,6 +2855,7 @@ static void CL_InitLocal(void)
     cl_autopause = Cvar_Get("cl_autopause", "1", 0);
     cl_rollhack = Cvar_Get("cl_rollhack", "1", 0);
     cl_noglow = Cvar_Get("cl_noglow", "0", 0);
+    cl_player_shells = Cvar_Get("cl_player_shells", "0", CVAR_ARCHIVE);
     cl_nobob = Cvar_Get("cl_nobob", "0", 0);
     cl_nolerp = Cvar_Get("cl_nolerp", "0", 0);
 
@@ -2851,7 +2910,7 @@ static void CL_InitLocal(void)
     cl_ignore_stufftext = Cvar_Get("cl_ignore_stufftext", "0", 0);
     cl_allow_vid_restart = Cvar_Get("cl_allow_vid_restart", "0", 0);
 
-    cl_protocol = Cvar_Get("cl_protocol", "0", 0);
+    cl_protocol = Cvar_Get("cl_protocol", "32", 0);
 
     gender_auto = Cvar_Get("gender_auto", "1", CVAR_ARCHIVE);
 
@@ -3303,6 +3362,8 @@ unsigned CL_Frame(unsigned msec)
 
     CL_ProcessEvents();
     CL_Steam_Frame();
+    CL_Discord_Frame();
+    CL_Update_Frame();
 
     switch (sync_mode) {
     case SYNC_TIMEDEMO:
@@ -3538,6 +3599,8 @@ void CL_Init(void)
     Cvar_Set("cl_running", "1");
 
     CL_Steam_Init();
+    CL_Discord_Init();
+    CL_Update_Init();
 }
 
 /*
@@ -3563,7 +3626,9 @@ void CL_Shutdown(void)
     }
 
     CL_GTV_Shutdown();
+    CL_Discord_Shutdown();
     CL_Steam_Shutdown();
+    CL_Update_Shutdown();
 
     CL_Disconnect(ERR_FATAL);
 

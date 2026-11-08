@@ -1315,6 +1315,72 @@ void Sys_ListFiles_r(listfiles_t *list, const char *path, int depth)
     _findclose(handle);
 }
 
+bool Sys_GetBinaryPath(char *path, size_t size)
+{
+    DWORD len = GetModuleFileNameA(NULL, path, (DWORD)size);
+    return (len > 0 && len < size);
+}
+
+void Sys_CleanOldBinary(void)
+{
+    char exe_path[MAX_PATH];
+    char old_path[MAX_PATH];
+    if (Sys_GetBinaryPath(exe_path, sizeof(exe_path))) {
+        Q_snprintf(old_path, sizeof(old_path), "%s.old", exe_path);
+        DeleteFileA(old_path);
+    }
+}
+
+bool Sys_ApplyUpdateAndRestart(const char *temp_binary_path)
+{
+    char exe_path[MAX_PATH];
+    char old_path[MAX_PATH];
+
+    if (!Sys_GetBinaryPath(exe_path, sizeof(exe_path))) {
+        Com_EPrintf("Sys_ApplyUpdateAndRestart: Could not determine current binary path\n");
+        return false;
+    }
+
+    Q_snprintf(old_path, sizeof(old_path), "%s.old", exe_path);
+
+    // Delete any stale .old binary
+    DeleteFileA(old_path);
+
+    // Rename current running executable to .old (Windows allows renaming running .exe)
+    if (!MoveFileA(exe_path, old_path)) {
+        Com_EPrintf("Sys_ApplyUpdateAndRestart: Failed to rename executable to %s (error %lu)\n",
+                    old_path, (unsigned long)GetLastError());
+        return false;
+    }
+
+    // Move downloaded new binary to executable path
+    if (!MoveFileA(temp_binary_path, exe_path)) {
+        Com_EPrintf("Sys_ApplyUpdateAndRestart: Failed to replace executable with %s (error %lu)\n",
+                    temp_binary_path, (unsigned long)GetLastError());
+        MoveFileA(old_path, exe_path);
+        return false;
+    }
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+
+    Com_Printf("Applying update and restarting OpenKP...\n");
+
+    if (CreateProcessA(exe_path, GetCommandLineA(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        Sys_Quit();
+        return true;
+    }
+
+    Com_EPrintf("Sys_ApplyUpdateAndRestart: CreateProcess failed for %s (error %lu)\n",
+                exe_path, (unsigned long)GetLastError());
+    return false;
+}
+
 /*
 ========================================================================
 

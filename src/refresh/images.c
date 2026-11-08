@@ -126,7 +126,7 @@ static void IMG_FloodFill(byte *skin, int skinwidth, int skinheight)
 IMG_Unpack8
 ===============
 */
-static int IMG_Unpack8(uint32_t *out, const uint8_t *in, int width, int height)
+static int IMG_Unpack8(uint32_t *out, const uint8_t *in, int width, int height, const uint32_t *pal)
 {
     int         x, y, p;
     bool        has_alpha = false;
@@ -157,9 +157,9 @@ static int IMG_Unpack8(uint32_t *out, const uint8_t *in, int width, int height)
                 else
                     p = 0;
                 // copy rgb components
-                *out = d_8to24table[p] & U32_RGB;
+                *out = pal[p] & U32_RGB;
             } else {
-                *out = d_8to24table[p];
+                *out = pal[p];
             }
             in++;
             out++;
@@ -297,15 +297,26 @@ static int load_pcx(const byte *rawdata, size_t rawlen,
         }
 
         if (is_pal) {
+            uint32_t pal_table[256];
+            const uint32_t *pal = d_8to24table;
+
             if (SZ_Remaining(&s) < PCX_PALETTE_SIZE)
                 Com_WPrintf("PCX file %s possibly corrupted\n", image->name);
+
+            if (rawlen >= PCX_PALETTE_SIZE + 1 && rawdata[rawlen - PCX_PALETTE_SIZE - 1] == 0x0c) {
+                const byte *src = rawdata + rawlen - PCX_PALETTE_SIZE;
+                for (int i = 0; i < 255; i++, src += 3)
+                    pal_table[i] = MakeColor(src[0], src[1], src[2], 255);
+                pal_table[255] = MakeColor(src[0], src[1], src[2], 0);
+                pal = pal_table;
+            }
 
             if (image->type == IT_SKIN)
                 IMG_FloodFill(pixels, w, h);
 
             *pic = IMG_AllocPixels(w * h * 4);
 
-            image->flags |= IMG_Unpack8((uint32_t *)*pic, pixels, w, h);
+            image->flags |= IMG_Unpack8((uint32_t *)*pic, pixels, w, h, pal);
 
             IMG_FreePixels(pixels);
         } else {
@@ -361,7 +372,7 @@ IMG_LOAD(WAL)
 
     image->upload_width = image->width = w;
     image->upload_height = image->height = h;
-    image->flags |= IMG_Unpack8((uint32_t *)*pic, rawdata + offset, w, h);
+    image->flags |= IMG_Unpack8((uint32_t *)*pic, rawdata + offset, w, h, d_8to24table);
 
     return Q_ERR_SUCCESS;
 }

@@ -757,19 +757,6 @@ void Key_Event(unsigned key, bool down, unsigned time)
             return;
         }
 
-        if (cls.key_dest == KEY_GAME &&
-            cl.frame.ps.stats[STAT_LAYOUTS] & (LAYOUTS_LAYOUT | LAYOUTS_INVENTORY | LAYOUTS_HELP) &&
-            !cls.demo.playback) {
-            if (keydown[key] == 2) {
-                // force main menu if escape is held
-                UI_OpenMenu(UIMENU_GAME);
-            } else if (keydown[key] == 1) {
-                // put away help computer / inventory
-                CL_ClientCommand("putaway");
-            }
-            return;
-        }
-
         // ignore autorepeats
         if (keydown[key] > 1) {
             return;

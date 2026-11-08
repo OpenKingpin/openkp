@@ -618,10 +618,20 @@ static void UI_MenuQuit_f(void)
     }
 }
 
+static void UI_ToggleMenu_f(void)
+{
+    if (Key_GetDest() & KEY_MENU) {
+        UI_ForceMenuOff();
+    } else {
+        UI_OpenMenu(UIMENU_MAIN);
+    }
+}
+
 static const cmdreg_t c_ui[] = {
     { "forcemenuoff", UI_ForceMenuOff },
     { "pushmenu", UI_PushMenu_f, UI_PushMenu_c },
     { "popmenu", UI_PopMenu_f },
+    { "togglemenu", UI_ToggleMenu_f },
     { "menu_savegame", UI_MenuSavegame_f },
     { "menu_loadgame", UI_MenuLoadgame_f },
     { "menu_keys", UI_MenuKeys_f },

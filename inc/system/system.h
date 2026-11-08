@@ -68,6 +68,10 @@ void    Sys_ListFiles_r(listfiles_t *list, const char *path, int depth);
 void    Sys_DebugBreak(void);
 bool    Sys_IsMainThread(void);
 
+bool    Sys_GetBinaryPath(char *path, size_t size);
+bool    Sys_ApplyUpdateAndRestart(const char *temp_binary_path);
+void    Sys_CleanOldBinary(void);
+
 #if USE_AC_CLIENT
 bool    Sys_GetAntiCheatAPI(void);
 #endif

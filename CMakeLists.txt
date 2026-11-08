@@ -391,6 +391,8 @@ set(CLIENT_SRC
     src/client/sound/main.c
     src/client/sound/mem.c
     src/client/steam.c
+    src/client/discord.c
+    src/client/update.c
     src/client/tent.c
     src/client/view.c
     src/common/async.c

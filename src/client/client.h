@@ -567,6 +567,7 @@ extern cvar_t   *cl_noskins;
 extern cvar_t   *cl_kickangles;
 extern cvar_t   *cl_rollhack;
 extern cvar_t   *cl_noglow;
+extern cvar_t   *cl_player_shells;
 extern cvar_t   *cl_nobob;
 extern cvar_t   *cl_nolerp;
 
@@ -992,6 +993,7 @@ void CL_PowerSplash(void);
 void CL_TeleporterParticles2(const vec3_t org);
 void CL_HologramParticles(const vec3_t org);
 void CL_BarrelExplodingParticles(const vec3_t org);
+void CL_FlameEffects(const centity_t *cent, const entity_t *ent);
 
 
 //
@@ -1167,4 +1169,22 @@ void CL_GTV_Shutdown(void);
 void CL_Steam_Init(void);
 void CL_Steam_Frame(void);
 void CL_Steam_Shutdown(void);
+void CL_Steam_UpdateRichPresence(const char *status, const char *connect);
+
+//
+// discord.c
+//
+void CL_Discord_Init(void);
+void CL_Discord_Frame(void);
+void CL_Discord_Shutdown(void);
+
+//
+// update.c
+//
+void CL_Update_Init(void);
+void CL_Update_Frame(void);
+void CL_Update_Shutdown(void);
+void CL_Update_Check(bool verbose);
+void CL_Update_Start(bool force);
+void CL_Update_Cancel(void);
 

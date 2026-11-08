@@ -1,0 +1,197 @@
+name: Release & Nightly Builds
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  MESON_ARGS: >-
+    --auto-features=enabled
+    --fatal-meson-warnings
+    -Dbase-game=main
+    -Dsave-games=false
+    -Danticheat-server=true
+    -Davcodec=disabled
+    -Dclient-gtv=true
+    -Dpacketdup-hack=true
+    -Dtests=false
+    -Dvariable-fps=true
+    -Dwerror=false
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: subprojects/packagecache
+          key: ${{ hashFiles('subprojects/*.wrap') }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64 nasm meson ninja-build zip
+
+      - name: Build Windows Binary
+        run: |
+          meson setup --cross-file=.ci/x86_64-w64-mingw32.txt \
+            ${{ env.MESON_ARGS }} \
+            -Dsdl2=disabled -Dwayland=disabled -Dwrap_mode=forcefallback -Dx11=disabled \
+            builddir-win
+          meson compile -C builddir-win openkp
+          x86_64-w64-mingw32-strip -s builddir-win/openkp.exe
+          mkdir -p win-artifacts
+          cp builddir-win/openkp.exe win-artifacts/openkp.exe
+          cd win-artifacts
+          zip -9 openkp-windows-x64.zip openkp.exe
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-assets
+          path: |
+            win-artifacts/openkp.exe
+            win-artifacts/openkp-windows-x64.zip
+
+  build-linux:
+    name: Build Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libsdl2-dev libopenal-dev \
+            libpng-dev libjpeg-dev zlib1g-dev mesa-common-dev \
+            libcurl4-gnutls-dev libx11-dev libxi-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev
+
+      - name: Build Linux Binary
+        run: |
+          meson setup \
+            ${{ env.MESON_ARGS }} \
+            -Dwindows-crash-dumps=disabled -Dwrap_mode=nofallback \
+            builddir-linux
+          meson compile -C builddir-linux openkp
+          strip -s builddir-linux/openkp
+          mkdir -p linux-artifacts
+          cp builddir-linux/openkp linux-artifacts/openkp
+          tar czf linux-artifacts/openkp-linux-x86_64.tar.gz -C linux-artifacts openkp
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release-assets
+          path: |
+            linux-artifacts/openkp
+            linux-artifacts/openkp-linux-x86_64.tar.gz
+
+  publish:
+    name: Publish Release & Manifest
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: release-files
+
+      - name: Prepare Release Assets & version.json
+        id: meta
+        run: |
+          cd release-files
+          REV=$(git rev-list --count HEAD)
+          SHA=$(git rev-parse --short HEAD)
+          FULL_SHA=$(git rev-parse HEAD)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${{ github.ref_name }}"
+            CHANNEL="latest"
+            IS_PRERELEASE=false
+            TITLE="OpenKP ${{ github.ref_name }}"
+          else
+            TAG="nightly"
+            CHANNEL="nightly"
+            IS_PRERELEASE=true
+            TITLE="OpenKP Nightly (r${REV})"
+          fi
+
+          WIN_SHA256=$(sha256sum openkp.exe | awk '{print $1}')
+          LINUX_SHA256=$(sha256sum openkp | awk '{print $1}')
+
+          cat <<EOF > version.json
+          {
+            "channel": "$CHANNEL",
+            "tag": "$TAG",
+            "revision": $REV,
+            "version": "r$REV~$SHA",
+            "commit": "$FULL_SHA",
+            "published_at": "$DATE",
+            "windows_x64": {
+              "binary_url": "https://github.com/OpenKingpin/openkp/releases/download/$TAG/openkp.exe",
+              "zip_url": "https://github.com/OpenKingpin/openkp/releases/download/$TAG/openkp-windows-x64.zip",
+              "sha256": "$WIN_SHA256"
+            },
+            "linux_x86_64": {
+              "binary_url": "https://github.com/OpenKingpin/openkp/releases/download/$TAG/openkp",
+              "tar_url": "https://github.com/OpenKingpin/openkp/releases/download/$TAG/openkp-linux-x86_64.tar.gz",
+              "sha256": "$LINUX_SHA256"
+            }
+          }
+          EOF
+
+          sha256sum openkp.exe openkp openkp-windows-x64.zip openkp-linux-x86_64.tar.gz version.json > SHA256SUMS.txt
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "rev=$REV" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          body: |
+            ### OpenKP Automated Build
+            * **Channel**: `${{ steps.meta.outputs.channel }}`
+            * **Revision**: `r${{ steps.meta.outputs.rev }}` (`${{ steps.meta.outputs.sha }}`)
+            * **Commit**: `${{ steps.meta.outputs.full_sha }}`
+            * **Date**: `${{ steps.meta.outputs.date }}`
+
+            #### Assets
+            * **Windows (64-bit)**: `openkp-windows-x64.zip` / `openkp.exe`
+            * **Linux (64-bit)**: `openkp-linux-x86_64.tar.gz` / `openkp`
+            * **Manifest**: `version.json` (used by OpenKP in-game auto-updater)
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.meta.outputs.prerelease == 'false' }}
+          files: |
+            release-files/openkp.exe
+            release-files/openkp-windows-x64.zip
+            release-files/openkp
+            release-files/openkp-linux-x86_64.tar.gz
+            release-files/version.json
+            release-files/SHA256SUMS.txt

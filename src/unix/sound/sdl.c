@@ -54,7 +54,7 @@ static void Shutdown(void)
 
 static sndinitstat_t Init(void)
 {
-    SDL_AudioSpec desired, obtained;
+    SDL_AudioSpec desired;
     int ret;
 
     ret = SDL_InitSubSystem(SDL_INIT_AUDIO);
@@ -83,25 +83,15 @@ static sndinitstat_t Init(void)
     desired.samples = 512;
     desired.channels = 2;
     desired.callback = Filler;
-    ret = SDL_OpenAudio(&desired, &obtained);
+    ret = SDL_OpenAudio(&desired, NULL);
     if (ret == -1) {
         Com_EPrintf("Couldn't open SDL audio: %s\n", SDL_GetError());
         goto fail1;
     }
 
-    if (obtained.format != AUDIO_S16LSB) {
-        Com_EPrintf("SDL audio format %d unsupported.\n", obtained.format);
-        goto fail2;
-    }
-
-    if (obtained.channels != 1 && obtained.channels != 2) {
-        Com_EPrintf("SDL audio channels %d unsupported.\n", obtained.channels);
-        goto fail2;
-    }
-
-    dma.speed = obtained.freq;
-    dma.channels = obtained.channels;
-    dma.samples = 0x8000 * obtained.channels;
+    dma.speed = desired.freq;
+    dma.channels = desired.channels;
+    dma.samples = 0x8000 * desired.channels;
     dma.submission_chunk = 1;
     dma.samplebits = 16;
     dma.buffer = Z_Mallocz(dma.samples * 2);
@@ -113,8 +103,6 @@ static sndinitstat_t Init(void)
 
     return SIS_SUCCESS;
 
-fail2:
-    SDL_CloseAudio();
 fail1:
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
     return SIS_FAILURE;

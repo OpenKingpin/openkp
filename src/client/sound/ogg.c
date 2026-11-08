@@ -191,16 +191,7 @@ static void shuffle(void)
 
 static int remap_track(int track)
 {
-    if (ogg_remap_tracks->integer && track >= 2 && track <= 11) {
-        if (!Q_stricmp(cl.gamedir, "rogue"))
-            return track + 10;
-
-        if (!Q_stricmp(cl.gamedir, "xatrix")) {
-            static const byte remap[10] = { 9, 13, 14, 7, 16, 2, 15, 3, 4, 18 };
-            return remap[track - 2];
-        }
-    }
-
+    // Kingpin has no Quake II mission packs (rogue/xatrix).
     return track;
 }
 
@@ -221,7 +212,15 @@ static const char *lookup_track_path(const char *name)
             return NULL;
         const char *path = lookup_track(va("track%02d", track));
         if (!path)
+            path = lookup_track(va("track%d", track));
+        if (!path)
+            path = lookup_track(va("track_%02d", track));
+        if (!path)
+            path = lookup_track(va("track_%d", track));
+        if (!path)
             path = lookup_track(va("%02d", track));
+        if (!path)
+            path = lookup_track(va("%d", track));
         return path;
     } else {
         char normalized[MAX_OSPATH];

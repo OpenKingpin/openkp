@@ -1140,6 +1140,28 @@ typedef struct {
 #define RF_FACINGUP         BIT(15)     // billboard aligned flat to ground plane
 #define RF_DIMLIGHT         BIT(16)     // always draw dim light intensity
 
+// Kingpin entity effects (protocol 32)
+#define EF_KP_FLASHLIGHT    BIT(21)     // replaces EF_GREENGIB
+#define EF_KP_REFL          BIT(26)     // environment reflection mapping (replaces EF_TRACKER)
+#define EF_KP_FLAMETHROWER  BIT(27)     // flamethrower trail/light (replaces EF_DOUBLE)
+#define EF_KP_ANIM_FAST_NEW BIT(28)     // 10hz animation (replaces EF_SPHERETRANS)
+
+// Kingpin renderfx2 flags
+#define RF2_FLAMESHOOTER            1
+#define RF2_FLAMESHOOTER_MOD        2
+#define RF2_MODULUS_FRAME           4
+#define RF2_ONLY_PARENTAL_LOCKED    32
+#define RF2_SCALE50                 64
+#define RF2_SCALE25                 128
+#define RF2_MONEYBAG                256
+#define RF2_SURF_ALPHA              512
+#define RF2_DIR_LIGHTS              1024
+#define RF2_FLAMETHROWER            2048
+#define RF2_PASSALPHA               4096
+#define RF2_NOSHADOW                8192
+#define RF2_BEAM2                   16384
+#define RF2_PASSLIGHT               32768
+
 //ROGUE
 #define RF_IR_VISIBLE       BIT(15)
 #define RF_SHELL_DOUBLE     BIT(16)
