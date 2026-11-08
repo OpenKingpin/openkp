@@ -1160,3 +1160,11 @@ void CL_GTV_Shutdown(void);
 #define CL_GTV_Init()                   (void)0
 #define CL_GTV_Shutdown()               (void)0
 #endif
+
+//
+// steam.c
+//
+void CL_Steam_Init(void);
+void CL_Steam_Frame(void);
+void CL_Steam_Shutdown(void);
+

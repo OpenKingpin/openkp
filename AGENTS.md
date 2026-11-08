@@ -6,6 +6,7 @@ Local Q2PRO fork for an unofficial Kingpin multiplayer client. `upstream` is fet
 
 - First release is a 64-bit client that joins existing kpded2 servers.
 - Base engine is Q2PRO. Do not switch the base to yquake2, KMKingpin, R1Q2, or KingpinQ3.
+- OpenKP is a permanent hard fork for Kingpin. Changes will never be upstreamed back to Q2PRO; prioritize Kingpin architecture, correctness, and performance directly rather than maintaining Quake II dual-mode compromises.
 - Players bring their own `main/` data. Do not add paks or other game assets.
 - Single-player and co-op stay out until the multiplayer client connects and plays.
 

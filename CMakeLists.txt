@@ -390,6 +390,7 @@ set(CLIENT_SRC
     src/client/screen.c
     src/client/sound/main.c
     src/client/sound/mem.c
+    src/client/steam.c
     src/client/tent.c
     src/client/view.c
     src/common/async.c

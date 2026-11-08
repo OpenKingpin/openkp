@@ -3302,6 +3302,7 @@ unsigned CL_Frame(unsigned msec)
     cls.realtime += msec;
 
     CL_ProcessEvents();
+    CL_Steam_Frame();
 
     switch (sync_mode) {
     case SYNC_TIMEDEMO:
@@ -3536,6 +3537,8 @@ void CL_Init(void)
     cl_cmdbuf.exec = exec_server_string;
 
     Cvar_Set("cl_running", "1");
+
+    CL_Steam_Init();
 }
 
 /*
@@ -3561,6 +3564,7 @@ void CL_Shutdown(void)
     }
 
     CL_GTV_Shutdown();
+    CL_Steam_Shutdown();
 
     CL_Disconnect(ERR_FATAL);
 

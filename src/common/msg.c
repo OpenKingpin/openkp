@@ -2185,6 +2185,9 @@ static void MSG_ParseDeltaEntity_Kingpin(entity_state_t *to,
     else if (bits & U_FRAME16)
         to->frame = MSG_ReadWord();
 
+    if (to->frame < 0)
+        to->frame += 65536;
+
     if ((bits & U_SKIN32) == U_SKIN32)
         to->skinnum = MSG_ReadLong();
     else if (bits & U_SKIN8)

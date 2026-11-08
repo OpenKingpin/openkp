@@ -947,10 +947,10 @@ void GL_DrawAliasModel(const model_t *model)
     glCullResult_t cull;
     void (*tessfunc)(const maliasmesh_t *);
 
-    if (glr.fd.extended) {
-        newframenum = ent->frame % model->numframes;
-        oldframenum = ent->oldframe % model->numframes;
-    } else {
+    if (model->numframes > 0 && (glr.fd.extended || (glr.fd.rdflags & RDF_NOMIRROR_WEAPON))) {
+        newframenum = (unsigned)ent->frame % model->numframes;
+        oldframenum = (unsigned)ent->oldframe % model->numframes;
+    } else if (model->numframes > 0) {
         newframenum = ent->frame;
         if (newframenum >= model->numframes) {
             Com_DPrintf("%s: no such frame: %u\n", __func__, newframenum);
@@ -962,6 +962,8 @@ void GL_DrawAliasModel(const model_t *model)
             Com_DPrintf("%s: no such oldframe: %u\n", __func__, oldframenum);
             oldframenum = 0;
         }
+    } else {
+        newframenum = oldframenum = 0;
     }
 
     backlerp = ent->backlerp;
