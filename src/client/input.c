@@ -369,10 +369,8 @@ static void IN_AttackDown(void)
     {
         if (CL_IsChasing()) {
             CL_ClientCommand("invnext");
-        } else {
-            CL_ClientCommand("+activate");
+            return;
         }
-        return;
     }
 
     if (cl_instantpacket->integer && cls.state == ca_active && !cls.demo.playback) {
@@ -388,6 +386,13 @@ static void IN_AttackUp(void)
 static void IN_UseDown(void)
 {
     KeyDown(&in_use);
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN &&
+        cls.state == ca_active &&
+        !cls.demo.playback)
+    {
+        CL_ClientCommand("+activate");
+    }
 
     if (cl_instantpacket->integer && cls.state == ca_active && !cls.demo.playback) {
         cl.sendPacketNow = true;

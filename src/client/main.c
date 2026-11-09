@@ -327,7 +327,7 @@ bool CL_ForwardToServer(void)
     char    *cmd;
 
     cmd = Cmd_Argv(0);
-    if (*cmd == '-' || *cmd == '+') {
+    if ((*cmd == '-' || *cmd == '+') && strcmp(cmd, "+activate") != 0) {
         return false;
     }
 
@@ -2782,10 +2782,8 @@ static void CL_WeapNext_f(void)
     {
         if (CL_IsChasing()) {
             CL_ClientCommand("invnext");
-        } else {
-            CL_ClientCommand("+activate");
+            return;
         }
-        return;
     }
 
     CL_ForwardToServer();
@@ -2801,10 +2799,8 @@ static void CL_WeapPrev_f(void)
     {
         if (CL_IsChasing()) {
             CL_ClientCommand("invprev");
-        } else {
-            CL_ClientCommand("+activate");
+            return;
         }
-        return;
     }
 
     CL_ForwardToServer();
@@ -2848,6 +2844,7 @@ static const cmdreg_t c_client[] = {
     { "load", CL_Load_f },
     { "chase", CL_Chase_f },
     { "chasecam", CL_Chase_f },
+    { "activate", CL_Chase_f },
     { "chasenext", CL_ChaseNext_f },
     { "chaseprev", CL_ChasePrev_f },
     { "chase_next", CL_ChaseNext_f },
