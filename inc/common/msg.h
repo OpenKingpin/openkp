@@ -46,6 +46,11 @@ typedef struct {
     uint8_t     scale;
     uint8_t     loop_volume;
     uint8_t     loop_attenuation;
+    int32_t     renderfx2;
+    uint32_t    model_light;
+    uint8_t     num_parts;
+    int8_t      kp_scale;
+    kp_model_part_t model_parts[KP_MAX_MODEL_PARTS];
 } entity_packed_t;
 
 typedef struct {
@@ -71,6 +76,8 @@ typedef struct {
     uint8_t             fov;
     uint8_t             rdflags;
     int16_t             stats[MAX_STATS_NEW];
+    int16_t             viewoffset2_16;
+    kp_model_part_t     gun_parts[KP_MAX_MODEL_PARTS];
 } player_packed_t;
 
 typedef enum {

@@ -530,7 +530,319 @@ void MSG_PackEntity(entity_packed_t *out, const entity_state_t *in, const entity
         // save network bandwidth
         if (out->scale == 16) out->scale = 0;
         if (out->loop_volume == 255) out->loop_volume = 0;
+
+        out->renderfx2 = ext->renderfx2;
+        out->model_light = ext->model_light;
+        out->num_parts = ext->num_parts;
+        out->kp_scale = (int8_t)Q_clip((int)(ext->scale * 127.0f), -128, 127);
+        for (int i = 0; i < KP_MAX_MODEL_PARTS; i++)
+            out->model_parts[i] = ext->model_parts[i];
+    } else {
+        out->morefx = 0;
+        out->alpha = 0;
+        out->scale = 0;
+        out->loop_volume = 0;
+        out->loop_attenuation = 0;
+        out->renderfx2 = 0;
+        out->model_light = 0;
+        out->num_parts = 0;
+        out->kp_scale = 0;
+        memset(out->model_parts, 0, sizeof(out->model_parts));
     }
+}
+
+static void MSG_WriteRenderfx(int renderfx, uint64_t bits)
+{
+    if ((bits & U_RENDERFX32) == U_RENDERFX32)
+        MSG_WriteLong(renderfx);
+    else if (bits & U_RENDERFX8)
+        MSG_WriteByte(renderfx);
+    else if (bits & U_RENDERFX16)
+        MSG_WriteShort(renderfx);
+}
+
+static void MSG_WriteModelParts(const kp_model_part_t *from, const kp_model_part_t *to)
+{
+    int changed = 0;
+    int flags[KP_MAX_MODEL_PARTS] = {0};
+    int skins[KP_MAX_MODEL_PARTS] = {0};
+
+    for (int i = 0; i < KP_MAX_MODEL_PARTS; i++) {
+        if (!from || to[i].modelindex != from[i].modelindex)
+            flags[i] |= 1;
+        if (!from || to[i].invisible_objects != from[i].invisible_objects)
+            flags[i] |= 2;
+        for (int j = 0; j < KP_MAX_MODELPART_OBJECTS; j++) {
+            if (!from || to[i].skinnum[j] != from[i].skinnum[j])
+                skins[i] |= BIT(j);
+        }
+        if (skins[i])
+            flags[i] |= 4;
+        if (flags[i])
+            changed |= BIT(i);
+    }
+
+    MSG_WriteByte(changed);
+    for (int i = 0; i < KP_MAX_MODEL_PARTS; i++) {
+        if (!(changed & BIT(i)))
+            continue;
+        MSG_WriteByte(flags[i]);
+        if (flags[i] & 1)
+            MSG_WriteByte(to[i].modelindex);
+        if (flags[i] & 2)
+            MSG_WriteByte(to[i].invisible_objects);
+        if (flags[i] & 4) {
+            MSG_WriteByte(skins[i]);
+            for (int j = 0; j < KP_MAX_MODELPART_OBJECTS; j++) {
+                if (skins[i] & BIT(j))
+                    MSG_WriteByte(to[i].skinnum[j]);
+            }
+        }
+    }
+}
+
+static void MSG_WriteDeltaEntity_Kingpin(const entity_packed_t *from,
+                                         const entity_packed_t *to,
+                                         msgEsFlags_t          flags)
+{
+    uint64_t    bits;
+
+    if (!to) {
+        Q_assert(from);
+        Q_assert(from->number > 0 && from->number < MAX_EDICTS);
+
+        bits = U_REMOVE;
+        if (from->number & 0xff00)
+            bits |= U_NUMBER16 | U_MOREBITS1;
+
+        MSG_WriteByte(bits & 255);
+        if (bits & 0x0000ff00)
+            MSG_WriteByte((bits >> 8) & 255);
+
+        if (bits & U_NUMBER16)
+            MSG_WriteShort(from->number);
+        else
+            MSG_WriteByte(from->number);
+
+        return; // remove entity
+    }
+
+    Q_assert(to->number > 0 && to->number < MAX_EDICTS);
+
+    if (!from)
+        from = &nullEntityState;
+
+    bits = 0;
+
+    if (!(flags & MSG_ES_FIRSTPERSON)) {
+        int dx = to->origin[0] - from->origin[0];
+        int dy = to->origin[1] - from->origin[1];
+        int dz = to->origin[2] - from->origin[2];
+        bool candelta = (from != &nullEntityState) &&
+                        (dx >= -256 && dx <= 254 && (dx % 2) == 0) &&
+                        (dy >= -256 && dy <= 254 && (dy % 2) == 0) &&
+                        (dz >= -256 && dz <= 254 && (dz % 2) == 0);
+
+        if (candelta && (dx || dy || dz)) {
+            bits |= KP_U_ORIGINDELTA;
+            if (dx) bits |= U_ORIGIN1;
+            if (dy) bits |= U_ORIGIN2;
+            if (dz) bits |= U_ORIGIN3;
+        } else {
+            if (dx) bits |= U_ORIGIN1;
+            if (dy) bits |= U_ORIGIN2;
+            if (dz) bits |= U_ORIGIN3;
+        }
+
+        if ((to->angles[0] ^ from->angles[0]) & 0xff00)
+            bits |= U_ANGLE1;
+        if ((to->angles[1] ^ from->angles[1]) & 0xff00)
+            bits |= U_ANGLE2;
+        if ((to->angles[2] ^ from->angles[2]) & 0xff00)
+            bits |= U_ANGLE3;
+
+        if ((flags & MSG_ES_NEWENTITY) && !VectorCompare(to->old_origin, from->origin))
+            bits |= U_OLDORIGIN;
+    }
+
+    if (to->skinnum != from->skinnum) {
+        if (to->skinnum & 0xffff0000)
+            bits |= U_SKIN32;
+        else if (to->skinnum & 0x0000ff00)
+            bits |= U_SKIN16;
+        else
+            bits |= U_SKIN8;
+    }
+
+    if (to->frame != from->frame) {
+        if (to->frame & 0xff00)
+            bits |= U_FRAME16;
+        else
+            bits |= U_FRAME8;
+    }
+
+    if (to->effects != from->effects) {
+        if (to->effects & 0xffff0000)
+            bits |= U_EFFECTS32;
+        else if (to->effects & 0x0000ff00)
+            bits |= U_EFFECTS16;
+        else
+            bits |= U_EFFECTS8;
+    }
+
+    if (to->renderfx != from->renderfx || to->renderfx2 != from->renderfx2) {
+        int rfx = to->renderfx | to->renderfx2;
+        if (rfx & 0xffff0000)
+            bits |= U_RENDERFX32;
+        else if (rfx & 0x0000ff00)
+            bits |= U_RENDERFX16;
+        else
+            bits |= U_RENDERFX8;
+    }
+
+    if (to->solid != from->solid)
+        bits |= U_SOLID;
+
+    if (to->event)
+        bits |= KP_U_EVENT;
+
+    if (to->modelindex != from->modelindex)
+        bits |= U_MODEL;
+
+    if (to->sound != from->sound) {
+        if (to->sound & 0xff00)
+            bits |= KP_U_SOUND16;
+        else
+            bits |= U_SOUND;
+    }
+
+    if (to->num_parts != from->num_parts)
+        bits |= KP_U_NUMPARTS;
+
+    if (memcmp(to->model_parts, from->model_parts, sizeof(to->model_parts)) != 0)
+        bits |= KP_U_MODELPARTS;
+
+    if (to->kp_scale != from->kp_scale)
+        bits |= KP_U_SCALE;
+
+    if (to->model_light != from->model_light)
+        bits |= KP_U_MODELLIGHT;
+
+    if (to->renderfx & RF_FRAMELERP) {
+        if (!VectorCompare(to->old_origin, from->origin))
+            bits |= U_OLDORIGIN;
+    } else if (to->renderfx & RF_BEAM) {
+        if (!VectorCompare(to->old_origin, from->old_origin))
+            bits |= U_OLDORIGIN;
+    }
+
+    if (!bits && !(flags & MSG_ES_FORCE))
+        return;     // nothing to send!
+
+    if (flags & MSG_ES_REMOVE)
+        bits |= U_REMOVE;
+
+    if (to->number & 0xff00)
+        bits |= U_NUMBER16;
+
+    if (bits & 0xff000000)
+        bits |= U_MOREBITS3 | U_MOREBITS2 | U_MOREBITS1;
+    else if (bits & 0x00ff0000)
+        bits |= U_MOREBITS2 | U_MOREBITS1;
+    else if (bits & 0x0000ff00)
+        bits |= U_MOREBITS1;
+
+    MSG_WriteByte(bits & 255);
+    if (bits & U_MOREBITS1) MSG_WriteByte((bits >>  8) & 255);
+    if (bits & U_MOREBITS2) MSG_WriteByte((bits >> 16) & 255);
+    if (bits & U_MOREBITS3) MSG_WriteByte((bits >> 24) & 255);
+
+    if (bits & U_NUMBER16)
+        MSG_WriteShort(to->number);
+    else
+        MSG_WriteByte(to->number);
+
+    if (bits & U_MODEL)
+        MSG_WriteByte(to->modelindex);
+
+    if (bits & KP_U_NUMPARTS)
+        MSG_WriteByte(to->num_parts);
+
+    if (bits & KP_U_MODELPARTS)
+        MSG_WriteModelParts(from->model_parts, to->model_parts);
+
+    if (bits & KP_U_PART3MODEL)
+        MSG_WriteByte(to->model_parts[3].modelindex);
+
+    if (bits & U_FRAME8)
+        MSG_WriteByte(to->frame);
+    else if (bits & U_FRAME16)
+        MSG_WriteShort(to->frame);
+
+    if ((bits & U_SKIN32) == U_SKIN32)
+        MSG_WriteLong(to->skinnum);
+    else if (bits & U_SKIN8)
+        MSG_WriteByte(to->skinnum);
+    else if (bits & U_SKIN16)
+        MSG_WriteShort(to->skinnum);
+
+    if ((bits & U_EFFECTS32) == U_EFFECTS32)
+        MSG_WriteLong(to->effects);
+    else if (bits & U_EFFECTS8)
+        MSG_WriteByte(to->effects);
+    else if (bits & U_EFFECTS16)
+        MSG_WriteShort(to->effects);
+
+    if (bits & (U_RENDERFX8 | U_RENDERFX16)) {
+        MSG_WriteRenderfx(to->renderfx, bits);
+        MSG_WriteRenderfx(to->renderfx2, bits);
+    }
+
+    if (bits & KP_U_ORIGINDELTA) {
+        if (bits & U_ORIGIN1)
+            MSG_WriteByte(((to->origin[0] - from->origin[0]) / 2) + 128);
+        if (bits & U_ORIGIN2)
+            MSG_WriteByte(((to->origin[1] - from->origin[1]) / 2) + 128);
+        if (bits & U_ORIGIN3)
+            MSG_WriteByte(((to->origin[2] - from->origin[2]) / 2) + 128);
+    } else {
+        if (bits & U_ORIGIN1)
+            MSG_WriteShort(to->origin[0]);
+        if (bits & U_ORIGIN2)
+            MSG_WriteShort(to->origin[1]);
+        if (bits & U_ORIGIN3)
+            MSG_WriteShort(to->origin[2]);
+    }
+
+    if (bits & U_ANGLE1)
+        MSG_WriteByte((to->angles[0] >> 8) & 255);
+    if (bits & U_ANGLE2)
+        MSG_WriteByte((to->angles[1] >> 8) & 255);
+    if (bits & U_ANGLE3)
+        MSG_WriteByte((to->angles[2] >> 8) & 255);
+
+    if (bits & U_OLDORIGIN) {
+        MSG_WriteShort(to->old_origin[0]);
+        MSG_WriteShort(to->old_origin[1]);
+        MSG_WriteShort(to->old_origin[2]);
+    }
+
+    if (bits & U_SOUND)
+        MSG_WriteByte(to->sound);
+    else if (bits & KP_U_SOUND16)
+        MSG_WriteShort(to->sound);
+
+    if (bits & KP_U_EVENT)
+        MSG_WriteByte(to->event);
+
+    if (bits & U_SOLID)
+        MSG_WriteShort(to->solid);
+
+    if (bits & KP_U_SCALE)
+        MSG_WriteByte((byte)(to->kp_scale + 127));
+
+    if (bits & KP_U_MODELLIGHT)
+        MSG_WriteLong(to->model_light);
 }
 
 void MSG_WriteDeltaEntity(const entity_packed_t *from,
@@ -539,6 +851,11 @@ void MSG_WriteDeltaEntity(const entity_packed_t *from,
 {
     uint64_t    bits;
     uint32_t    mask;
+
+    if (flags & MSG_ES_KINGPIN) {
+        MSG_WriteDeltaEntity_Kingpin(from, to, flags);
+        return;
+    }
 
     if (!to) {
         Q_assert(from);
@@ -901,6 +1218,10 @@ void MSG_PackPlayerNew(player_packed_t *out, const player_state_new_t *in)
 
     for (int i = 0; i < MAX_STATS_NEW; i++)
         out->stats[i] = in->stats[i];
+
+    out->viewoffset2_16 = ANGLE2SHORT(in->viewoffset[2]);
+    for (int i = 0; i < KP_MAX_MODEL_PARTS; i++)
+        out->gun_parts[i] = in->gun_parts[i];
 }
 
 static uint64_t MSG_CalcStatBits(const player_packed_t *from, const player_packed_t *to, msgPsFlags_t flags)
@@ -1054,37 +1375,67 @@ void MSG_WriteDeltaPlayerstate_Default(const player_packed_t *from, const player
     if (!VectorCompare(to->pmove.delta_angles, from->pmove.delta_angles))
         pflags |= PS_M_DELTA_ANGLES;
 
-    if (!VectorCompare(to->viewoffset, from->viewoffset))
-        pflags |= PS_VIEWOFFSET;
+    if (flags & MSG_PS_KINGPIN) {
+        if (to->viewoffset[0] != from->viewoffset[0] ||
+            to->viewoffset[1] != from->viewoffset[1] ||
+            to->viewoffset2_16 != from->viewoffset2_16)
+            pflags |= KP_PS_VIEWOFFSET;
 
-    if (!VectorCompare(to->viewangles, from->viewangles))
-        pflags |= PS_VIEWANGLES;
+        if (!VectorCompare(to->viewangles, from->viewangles))
+            pflags |= KP_PS_VIEWANGLES;
 
-    if (!VectorCompare(to->kick_angles, from->kick_angles))
-        pflags |= PS_KICKANGLES;
+        if (!VectorCompare(to->kick_angles, from->kick_angles))
+            pflags |= KP_PS_KICKANGLES;
 
-    if (!Vector4Compare(to->blend, from->blend))
-        pflags |= PS_BLEND;
-    else if (flags & MSG_PS_EXTENSIONS_2 &&
-        !Vector4Compare(to->damage_blend, from->damage_blend))
-        pflags |= PS_BLEND;
+        if (!Vector4Compare(to->blend, from->blend))
+            pflags |= KP_PS_BLEND;
 
-    if (flags & MSG_PS_MOREBITS && (fogbits = MSG_CalcFogBits(&from->fog, &to->fog)))
-        pflags |= PS_FOG;
+        if (to->fov != from->fov)
+            pflags |= KP_PS_FOV;
 
-    if (to->fov != from->fov)
-        pflags |= PS_FOV;
+        if (to->gunindex != from->gunindex || memcmp(to->gun_parts, from->gun_parts, sizeof(to->gun_parts)) != 0)
+            pflags |= KP_PS_WEAPONINDEX;
 
-    if (to->rdflags != from->rdflags)
-        pflags |= PS_RDFLAGS;
+        if (to->gunframe != from->gunframe ||
+            !VectorCompare(to->gunoffset, from->gunoffset) ||
+            !VectorCompare(to->gunangles, from->gunangles))
+            pflags |= KP_PS_WEAPONFRAME;
 
-    if (to->gunframe != from->gunframe ||
-        !VectorCompare(to->gunoffset, from->gunoffset) ||
-        !VectorCompare(to->gunangles, from->gunangles))
-        pflags |= PS_WEAPONFRAME;
+        if (to->rdflags != from->rdflags)
+            pflags |= KP_PS_RDFLAGS;
+    } else {
+        if (!VectorCompare(to->viewoffset, from->viewoffset))
+            pflags |= PS_VIEWOFFSET;
 
-    if (to->gunindex != from->gunindex)
-        pflags |= PS_WEAPONINDEX;
+        if (!VectorCompare(to->viewangles, from->viewangles))
+            pflags |= PS_VIEWANGLES;
+
+        if (!VectorCompare(to->kick_angles, from->kick_angles))
+            pflags |= PS_KICKANGLES;
+
+        if (!Vector4Compare(to->blend, from->blend))
+            pflags |= PS_BLEND;
+        else if (flags & MSG_PS_EXTENSIONS_2 &&
+            !Vector4Compare(to->damage_blend, from->damage_blend))
+            pflags |= PS_BLEND;
+
+        if (flags & MSG_PS_MOREBITS && (fogbits = MSG_CalcFogBits(&from->fog, &to->fog)))
+            pflags |= PS_FOG;
+
+        if (to->fov != from->fov)
+            pflags |= PS_FOV;
+
+        if (to->rdflags != from->rdflags)
+            pflags |= PS_RDFLAGS;
+
+        if (to->gunframe != from->gunframe ||
+            !VectorCompare(to->gunoffset, from->gunoffset) ||
+            !VectorCompare(to->gunangles, from->gunangles))
+            pflags |= PS_WEAPONFRAME;
+
+        if (to->gunindex != from->gunindex)
+            pflags |= PS_WEAPONINDEX;
+    }
 
     if (pflags & 0xff0000)
         pflags |= PS_MOREBITS;
@@ -1152,46 +1503,83 @@ void MSG_WriteDeltaPlayerstate_Default(const player_packed_t *from, const player
     //
     // write the rest of the player_state_t
     //
-    if (pflags & PS_VIEWOFFSET)
-        MSG_WriteData(to->viewoffset, sizeof(to->viewoffset));
+    if (flags & MSG_PS_KINGPIN) {
+        if (pflags & KP_PS_VIEWOFFSET) {
+            MSG_WriteByte(to->viewoffset[0]);
+            MSG_WriteByte(to->viewoffset[1]);
+            MSG_WriteShort(to->viewoffset2_16);
+        }
 
-    if (pflags & PS_VIEWANGLES) {
-        MSG_WriteShort(to->viewangles[0]);
-        MSG_WriteShort(to->viewangles[1]);
-        MSG_WriteShort(to->viewangles[2]);
-    }
+        if (pflags & KP_PS_VIEWANGLES) {
+            MSG_WriteShort(to->viewangles[0]);
+            MSG_WriteShort(to->viewangles[1]);
+            MSG_WriteShort(to->viewangles[2]);
+        }
 
-    if (pflags & PS_KICKANGLES)
-        MSG_WriteData(to->kick_angles, sizeof(to->kick_angles));
+        if (pflags & KP_PS_KICKANGLES)
+            MSG_WriteData(to->kick_angles, sizeof(to->kick_angles));
 
-    if (pflags & PS_WEAPONINDEX) {
-        if (flags & MSG_PS_EXTENSIONS)
-            MSG_WriteShort(to->gunindex);
-        else
+        if (pflags & KP_PS_WEAPONINDEX) {
             MSG_WriteByte(to->gunindex);
-    }
+            MSG_WriteModelParts(from ? from->gun_parts : NULL, to->gun_parts);
+        }
 
-    if (pflags & PS_WEAPONFRAME) {
-        MSG_WriteByte(to->gunframe);
-        MSG_WriteData(to->gunoffset, sizeof(to->gunoffset));
-        MSG_WriteData(to->gunangles, sizeof(to->gunangles));
-    }
+        if (pflags & KP_PS_WEAPONFRAME) {
+            MSG_WriteByte(to->gunframe);
+            MSG_WriteData(to->gunoffset, sizeof(to->gunoffset));
+            MSG_WriteData(to->gunangles, sizeof(to->gunangles));
+        }
 
-    if (pflags & PS_BLEND) {
-        if (flags & MSG_PS_EXTENSIONS_2)
-            MSG_WriteDeltaBlend(from, to);
-        else
+        if (pflags & KP_PS_BLEND)
             MSG_WriteData(to->blend, sizeof(to->blend));
+
+        if (pflags & KP_PS_FOV)
+            MSG_WriteByte(to->fov);
+
+        if (pflags & KP_PS_RDFLAGS)
+            MSG_WriteByte(to->rdflags);
+    } else {
+        if (pflags & PS_VIEWOFFSET)
+            MSG_WriteData(to->viewoffset, sizeof(to->viewoffset));
+
+        if (pflags & PS_VIEWANGLES) {
+            MSG_WriteShort(to->viewangles[0]);
+            MSG_WriteShort(to->viewangles[1]);
+            MSG_WriteShort(to->viewangles[2]);
+        }
+
+        if (pflags & PS_KICKANGLES)
+            MSG_WriteData(to->kick_angles, sizeof(to->kick_angles));
+
+        if (pflags & PS_WEAPONINDEX) {
+            if (flags & MSG_PS_EXTENSIONS)
+                MSG_WriteShort(to->gunindex);
+            else
+                MSG_WriteByte(to->gunindex);
+        }
+
+        if (pflags & PS_WEAPONFRAME) {
+            MSG_WriteByte(to->gunframe);
+            MSG_WriteData(to->gunoffset, sizeof(to->gunoffset));
+            MSG_WriteData(to->gunangles, sizeof(to->gunangles));
+        }
+
+        if (pflags & PS_BLEND) {
+            if (flags & MSG_PS_EXTENSIONS_2)
+                MSG_WriteDeltaBlend(from, to);
+            else
+                MSG_WriteData(to->blend, sizeof(to->blend));
+        }
+
+        if (pflags & PS_FOG)
+            MSG_WriteFog(&to->fog, fogbits);
+
+        if (pflags & PS_FOV)
+            MSG_WriteByte(to->fov);
+
+        if (pflags & PS_RDFLAGS)
+            MSG_WriteByte(to->rdflags);
     }
-
-    if (pflags & PS_FOG)
-        MSG_WriteFog(&to->fog, fogbits);
-
-    if (pflags & PS_FOV)
-        MSG_WriteByte(to->fov);
-
-    if (pflags & PS_RDFLAGS)
-        MSG_WriteByte(to->rdflags);
 
     // send stats
     statbits = MSG_CalcStatBits(from, to, flags);

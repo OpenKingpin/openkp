@@ -75,7 +75,7 @@ fail:
 
 void CL_PackEntity(entity_packed_t *out, const centity_state_t *in)
 {
-    MSG_PackEntity(out, &in->s, cl.csr.extended ? &in->x : NULL);
+    MSG_PackEntity(out, &in->s, (cl.csr.extended || cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) ? &in->x : NULL);
 
     // repack solid 32 to 16
     if (!cl.csr.extended && cl.esFlags & MSG_ES_LONGSOLID && in->solid && in->solid != PACKED_BSP) {
@@ -148,7 +148,7 @@ static void emit_packet_entities(const server_frame_t *from, const server_frame_
         if (newnum > oldnum) {
             // the old entity isn't present in the new message
             CL_PackEntity(&oldpack, oldent);
-            MSG_WriteDeltaEntity(&oldpack, NULL, MSG_ES_FORCE);
+            MSG_WriteDeltaEntity(&oldpack, NULL, cls.demo.esFlags | MSG_ES_FORCE);
             oldindex++;
             continue;
         }
@@ -226,21 +226,26 @@ void CL_EmitDemoFrame(void)
 
     if (msg_write.overflowed) {
         Com_WPrintf("%s: message buffer overflowed\n", __func__);
-    } else if (cls.demo.buffer.cursize + msg_write.cursize > cls.demo.buffer.maxsize) {
-        Com_DPrintf("Demo frame overflowed (%u + %u > %u)\n",
-                    cls.demo.buffer.cursize, msg_write.cursize, cls.demo.buffer.maxsize);
-        cls.demo.frames_dropped++;
-
-        // warn the user if drop rate is too high
-        if (cls.demo.frames_written < 10 && !(cls.demo.frames_dropped % 50)) {
-            Com_WPrintf("Too many demo frames don't fit into %u bytes!\n", cls.demo.buffer.maxsize);
-            if (cls.demo.frames_dropped == 50)
-                Com_WPrintf("Try to increase 'cl_demomsglen' value and restart recording.\n");
-        }
     } else {
-        SZ_Write(&cls.demo.buffer, msg_write.data, msg_write.cursize);
-        cls.demo.last_server_frame = cl.frame.number;
-        cls.demo.frames_written++;
+        if (cls.demo.buffer.cursize + msg_write.cursize > cls.demo.buffer.maxsize) {
+            CL_WriteDemoMessage(&cls.demo.buffer);
+        }
+        if (cls.demo.buffer.cursize + msg_write.cursize > cls.demo.buffer.maxsize) {
+            Com_DPrintf("Demo frame overflowed (%u + %u > %u)\n",
+                        cls.demo.buffer.cursize, msg_write.cursize, cls.demo.buffer.maxsize);
+            cls.demo.frames_dropped++;
+
+            // warn the user if drop rate is too high
+            if (cls.demo.frames_written < 10 && !(cls.demo.frames_dropped % 50)) {
+                Com_WPrintf("Too many demo frames don't fit into %u bytes!\n", cls.demo.buffer.maxsize);
+                if (cls.demo.frames_dropped == 50)
+                    Com_WPrintf("Try to increase 'cl_demomsglen' value and restart recording.\n");
+            }
+        } else {
+            SZ_Write(&cls.demo.buffer, msg_write.data, msg_write.cursize);
+            cls.demo.last_server_frame = cl.frame.number;
+            cls.demo.frames_written++;
+        }
     }
 
     SZ_Clear(&msg_write);
@@ -402,8 +407,13 @@ static void CL_Record_f(void)
     // the first frame will be delta uncompressed
     cls.demo.last_server_frame = -1;
 
-    if (cl.csr.extended)
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        size = MAX_PACKETLEN_WRITABLE_DEFAULT;
+        cls.demo.esFlags = MSG_ES_KINGPIN;
+        cls.demo.psFlags = MSG_PS_KINGPIN;
+    } else if (cl.csr.extended) {
         size = MAX_MSGLEN;
+    }
 
     SZ_InitWrite(&cls.demo.buffer, demo_buffer, size);
 

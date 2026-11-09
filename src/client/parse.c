@@ -716,8 +716,13 @@ static void CL_ParseServerData(void)
     cl.max_stats = (cl.psFlags & MSG_PS_EXTENSIONS_2) ? MAX_STATS_NEW : MAX_STATS_OLD;
 
     // use full extended flags unless writing backward compatible demo
-    cls.demo.esFlags = cl.csr.extended ? CL_ES_EXTENDED_MASK_2 : 0;
-    cls.demo.psFlags = cl.csr.extended ? CL_PS_EXTENDED_MASK_2 : 0;
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        cls.demo.esFlags = MSG_ES_KINGPIN;
+        cls.demo.psFlags = MSG_PS_KINGPIN;
+    } else {
+        cls.demo.esFlags = cl.csr.extended ? CL_ES_EXTENDED_MASK_2 : 0;
+        cls.demo.psFlags = cl.csr.extended ? CL_PS_EXTENDED_MASK_2 : 0;
+    }
 
     if (cinematic) {
         SCR_PlayCinematic(levelname);
@@ -871,9 +876,15 @@ static void CL_ParseKingpinTEnt(int type)
     case TE_KP_BFG_BIGEXPLOSION:
     case TE_KP_BOSSTPORT:
     case TE_KP_PLASMA_EXPLOSION:
-    case TE_KP_BURN_TO_A_CRISP:
         CL_ReadPos(te.pos1);
         te.type = TE_EXPLOSION1;
+        break;
+
+    case TE_KP_BURN_TO_A_CRISP:
+        CL_ReadPos(te.pos1);
+        te.count = 20;
+        te.color = 0;
+        te.type = TE_KP_FIRE_PARTICLES;
         break;
 
     case TE_KP_SPLASH:
@@ -929,17 +940,30 @@ static void CL_ParseKingpinTEnt(int type)
 
     case 34:    // fire go: position and one scale byte
         CL_ReadPos(te.pos1);
-        MSG_ReadByte();
-        te.type = TE_EXPLOSION1;
+        te.count = MSG_ReadByte();
+        te.color = 0;
+        te.type = TE_KP_FIRE_PARTICLES;
         break;
 
     case 32:    // fire
+        CL_ReadPos(te.pos1);
+        te.count = MSG_ReadByte();
+        te.color = MSG_ReadByte();
+        te.type = TE_KP_FIRE_PARTICLES;
+        break;
+
     case 33:    // smoke
+        CL_ReadPos(te.pos1);
+        te.count = MSG_ReadByte();
+        te.color = MSG_ReadByte();
+        te.type = TE_KP_SMOKE_PARTICLES;
+        break;
+
     case 58:    // fire trail
         CL_ReadPos(te.pos1);
-        MSG_ReadByte();
-        MSG_ReadByte();
-        te.type = TE_EXPLOSION1;
+        te.count = MSG_ReadByte();
+        te.color = MSG_ReadByte();
+        te.type = TE_KP_FIRE_PARTICLES;
         break;
 
     case 37:    // snow: position and four shorts
@@ -948,7 +972,7 @@ static void CL_ParseKingpinTEnt(int type)
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
-        te.type = TE_EXPLOSION1;
+        te.type = TE_KP_NONE;
         break;
 
     case 38:    // rain: position and five shorts
@@ -958,7 +982,7 @@ static void CL_ParseKingpinTEnt(int type)
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
-        te.type = TE_EXPLOSION1;
+        te.type = TE_KP_NONE;
         break;
 
     case TE_KP_CONCUSSION_EXPLOSION:        // concussion (bazooka)
@@ -975,22 +999,22 @@ static void CL_ParseKingpinTEnt(int type)
     case 50:    // steam: position, direction, five parameter bytes
         CL_ReadPos(te.pos1);
         MSG_ReadDir(te.dir);
+        te.count = MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
-        MSG_ReadByte();
-        te.type = TE_EXPLOSION1;
+        te.type = TE_KP_STEAM_PARTICLES;
         break;
 
     case 51:    // smoke2: two positions and four parameter bytes
         CL_ReadPos(te.pos1);
         CL_ReadPos(te.pos2);
+        te.count = MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
-        MSG_ReadByte();
-        te.type = TE_EXPLOSION1;
+        te.type = TE_KP_SMOKE_PARTICLES;
         break;
 
     case 53:    // art burn: position, short size, four color bytes
@@ -1000,13 +1024,13 @@ static void CL_ParseKingpinTEnt(int type)
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
-        te.type = TE_EXPLOSION1;
+        te.type = TE_KP_NONE;
         break;
 
     case 54:    // fog brush
         CL_ReadPos(te.pos1);
         CL_ReadPos(te.pos2);
-        te.type = TE_BUBBLETRAIL;
+        te.type = TE_KP_NONE;
         break;
 
     case 43:    // surface sprite: type, width, height, position, pitch, yaw
@@ -1016,7 +1040,7 @@ static void CL_ParseKingpinTEnt(int type)
         CL_ReadPos(te.pos1);
         MSG_ReadByte();
         MSG_ReadByte();
-        te.type = TE_EXPLOSION1;
+        te.type = TE_KP_NONE;
         break;
 
     case 55:    // gibs: position, direction, count, three scale bytes
@@ -1747,6 +1771,9 @@ void CL_ParseServerMessage(void)
             // it is very easy to overflow standard 1390 bytes
             // demo frame with modern servers... attempt to preserve
             // reliable messages at least, assuming they come first
+            if (cls.demo.buffer.cursize + len >= cls.demo.buffer.maxsize) {
+                CL_WriteDemoMessage(&cls.demo.buffer);
+            }
             if (cls.demo.buffer.cursize + len < cls.demo.buffer.maxsize) {
                 SZ_Write(&cls.demo.buffer, msg_read.data + readcount, len);
             } else {
