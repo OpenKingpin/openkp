@@ -1783,10 +1783,10 @@ void CL_CalcViewValues(void)
     }
 
     // apply screen shake to view angles if active
-    if (cl.shake.intensity > 0.0f && cl.shake.duration > 0 && cl.time < cl.shake.time + cl.shake.duration) {
+    if (cl_screenshake->value > 0.0f && cl.shake.intensity > 0.0f && cl.shake.duration > 0 && cl.time < cl.shake.time + cl.shake.duration) {
         float frac = 1.0f - (float)(cl.time - cl.shake.time) / (float)cl.shake.duration;
         if (frac > 0.0f) {
-            float cur = cl.shake.intensity * frac;
+            float cur = cl.shake.intensity * frac * cl_screenshake->value;
             float freq = (float)(cl.time - cl.shake.time) * 0.04f;
             cl.refdef.viewangles[PITCH] += sinf(freq * 1.3f) * cur * 0.7f;
             cl.refdef.viewangles[YAW]   += cosf(freq * 1.1f) * cur * 0.5f;

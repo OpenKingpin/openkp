@@ -1888,6 +1888,21 @@ void CL_ParseTEnt(void)
         CL_PowerSplash();
         break;
 
+    case TE_KP_FIRE_PARTICLES:
+        CL_FireKP(te.pos1, te.count, te.color);
+        break;
+
+    case TE_KP_SMOKE_PARTICLES:
+        CL_SmokeKP(te.pos1, te.count, te.color);
+        break;
+
+    case TE_KP_STEAM_PARTICLES:
+        CL_SteamKP(te.pos1, te.dir, te.count);
+        break;
+
+    case TE_KP_NONE:
+        break;
+
     case TE_DAMAGE_DEALT:
         if (te.count > 0 && cl_hit_markers->integer > 0) {
             cl.hit_marker_time = cls.realtime;

@@ -61,6 +61,7 @@ typedef struct {
 
 static cvar_t *cl_discord;
 static cvar_t *cl_discord_appid;
+static cvar_t *cl_discord_gamename;
 
 static enum discord_state discord_status = DISCORD_STATE_DISCONNECTED;
 static unsigned int discord_last_attempt = 0;
@@ -391,8 +392,13 @@ static void CL_Discord_UpdateActivity(void)
         return;
 
     char payload[2048];
+    char escaped_name[256];
     char escaped_state[256];
     char escaped_details[256];
+
+    const char *gamename = (cl_discord_gamename && cl_discord_gamename->string[0]) ?
+                            cl_discord_gamename->string : "Kingpin: Life of Crime";
+    Discord_EscapeJSON(gamename, escaped_name, sizeof(escaped_name));
 
     if (cls.state == ca_active) {
         char map[MAX_QPATH];
@@ -423,6 +429,7 @@ static void CL_Discord_UpdateActivity(void)
             "{\"cmd\":\"SET_ACTIVITY\",\"args\":{"
             "\"pid\":%d,"
             "\"activity\":{"
+                "\"name\":\"%s\","
                 "\"state\":\"%s\","
                 "\"details\":\"%s\","
                 "\"timestamps\":{\"start\":%lld},"
@@ -443,6 +450,7 @@ static void CL_Discord_UpdateActivity(void)
 #else
             (int)getpid(),
 #endif
+            escaped_name,
             escaped_state,
             escaped_details,
             (long long)discord_start_time,
@@ -458,6 +466,7 @@ static void CL_Discord_UpdateActivity(void)
             "{\"cmd\":\"SET_ACTIVITY\",\"args\":{"
             "\"pid\":%d,"
             "\"activity\":{"
+                "\"name\":\"%s\","
                 "\"state\":\"%s\","
                 "\"details\":\"%s\","
                 "\"timestamps\":{\"start\":%lld},"
@@ -472,6 +481,7 @@ static void CL_Discord_UpdateActivity(void)
 #else
             (int)getpid(),
 #endif
+            escaped_name,
             escaped_state,
             escaped_details,
             (long long)discord_start_time,
@@ -492,6 +502,7 @@ void CL_Discord_Init(void)
 {
     cl_discord = Cvar_Get("cl_discord", "1", CVAR_ARCHIVE);
     cl_discord_appid = Cvar_Get("cl_discord_appid", DEFAULT_DISCORD_APPID, CVAR_ARCHIVE);
+    cl_discord_gamename = Cvar_Get("cl_discord_gamename", "Kingpin: Life of Crime", CVAR_ARCHIVE);
 
     discord_status = DISCORD_STATE_DISCONNECTED;
     discord_last_attempt = 0;

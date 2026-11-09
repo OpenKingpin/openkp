@@ -1935,6 +1935,9 @@ void CL_AddScreenShake(float intensity, int duration)
     if (duration <= 0 || intensity <= 0.0f)
         return;
 
+    if (cl_screenshake && cl_screenshake->value <= 0.0f)
+        return;
+
     if (cl.shake.intensity <= intensity || (cl.time - cl.shake.time) >= cl.shake.duration) {
         cl.shake.intensity = intensity;
         cl.shake.time = cl.time;
@@ -2247,6 +2250,160 @@ void CL_ExplosionKP(const vec3_t org, int type)
 void CL_RocketExplosionKP(const vec3_t org)
 {
     CL_ExplosionKP(org, TE_ROCKET_EXPLOSION);
+}
+
+/**
+ * @brief Spawns Kingpin ambient fire particles (e.g. for light_fire_sm/med/lg, fire barrels, torches).
+ *
+ * @param org Center position of fire.
+ * @param count Size / intensity indicator from server (e.g. 16, 24, 32).
+ * @param speed Optional vertical drift speed.
+ */
+void CL_FireKP(const vec3_t org, int count, int speed)
+{
+    cparticle_t *p;
+    int num_particles;
+    int i, j;
+    float radius;
+
+    if (count <= 0)
+        count = 16;
+
+    radius = (float)count * 0.4f;
+    num_particles = count / 3;
+    if (num_particles < 4)
+        num_particles = 4;
+    else if (num_particles > 16)
+        num_particles = 16;
+
+    for (i = 0; i < num_particles; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        // Warm flickering flame color (yellow-orange core to deep orange)
+        if (i & 1)
+            p->rgba.u32 = MakeColor(255, 190 + (Q_rand() & 60), 30 + (Q_rand() & 30), 230);
+        else
+            p->rgba.u32 = MakeColor(255, 110 + (Q_rand() & 70), 10, 210);
+
+        p->scale = 1.0f + frand() * 0.8f + (float)count * 0.03f;
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.28f + frand() * 0.18f);
+
+        for (j = 0; j < 2; j++) {
+            p->org[j] = org[j] + crand() * radius;
+            p->vel[j] = crand() * 8.0f;
+        }
+        p->org[2] = org[2] + frand() * 4.0f;
+        p->vel[2] = (speed > 0 ? (float)speed * 3.5f : 35.0f) + frand() * 25.0f;
+
+        VectorClear(p->accel);
+        p->accel[2] = 20.0f;
+    }
+
+    // Subtle dynamic light glow for the flame
+    cdlight_t *dl = CL_AllocDlight(0);
+    VectorCopy(org, dl->origin);
+    dl->radius = (float)count * 5.0f + (Q_rand() & 15);
+    VectorSet(dl->color, 1.0f, 0.55f, 0.15f);
+    dl->die = cl.time + 120;
+}
+
+/**
+ * @brief Spawns Kingpin ambient smoke particles (e.g. rising from fire barrels or chimneys).
+ *
+ * @param org Position of smoke emitter.
+ * @param count Smoke density / size.
+ * @param speed Optional drift speed.
+ */
+void CL_SmokeKP(const vec3_t org, int count, int speed)
+{
+    cparticle_t *p;
+    int num_particles;
+    int i, j;
+    float radius;
+
+    if (count <= 0)
+        count = 16;
+
+    radius = (float)count * 0.4f;
+    num_particles = count / 5;
+    if (num_particles < 2)
+        num_particles = 2;
+    else if (num_particles > 10)
+        num_particles = 10;
+
+    for (i = 0; i < num_particles; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        uint8_t c = 45 + (Q_rand() & 35);
+        p->rgba.u32 = MakeColor(c, c, c, 175);
+        p->scale = 1.6f + frand() * 1.2f + (float)count * 0.04f;
+        p->alpha = 0.75f;
+        p->alphavel = -1.0f / (0.75f + frand() * 0.45f);
+
+        for (j = 0; j < 2; j++) {
+            p->org[j] = org[j] + crand() * radius;
+            p->vel[j] = crand() * 6.0f;
+        }
+        p->org[2] = org[2] + (float)count * 0.4f + frand() * 6.0f;
+        p->vel[2] = (speed > 0 ? (float)speed * 2.5f : 25.0f) + frand() * 20.0f;
+
+        VectorClear(p->accel);
+        p->accel[2] = 12.0f;
+    }
+}
+
+/**
+ * @brief Spawns Kingpin steam vent particles.
+ *
+ * @param org Position of steam nozzle.
+ * @param dir Direction steam is shooting.
+ * @param count Density.
+ */
+void CL_SteamKP(const vec3_t org, const vec3_t dir, int count)
+{
+    cparticle_t *p;
+    int num_particles;
+    int i, j;
+    vec3_t d;
+
+    if (VectorLength(dir) < 0.1f)
+        VectorSet(d, 0, 0, 1.0f);
+    else {
+        VectorCopy(dir, d);
+        VectorNormalize(d);
+    }
+
+    num_particles = count / 4;
+    if (num_particles < 3)
+        num_particles = 3;
+    else if (num_particles > 12)
+        num_particles = 12;
+
+    for (i = 0; i < num_particles; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+        p->time = cl.time;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(210, 215, 225, 140);
+        p->scale = 1.4f + frand() * 1.0f;
+        p->alpha = 0.65f;
+        p->alphavel = -1.0f / (0.45f + frand() * 0.25f);
+
+        for (j = 0; j < 3; j++) {
+            p->org[j] = org[j] + crand() * 2.0f;
+            p->vel[j] = d[j] * (60.0f + frand() * 40.0f) + crand() * 15.0f;
+        }
+        VectorClear(p->accel);
+        p->accel[2] = 15.0f;
+    }
 }
 
 /**

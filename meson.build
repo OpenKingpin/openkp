@@ -257,6 +257,9 @@ add_project_link_arguments(common_link_args, language: 'c')
 config = configuration_data()
 
 texture_formats = []
+if get_option('tga')
+  texture_formats += 'tga'
+endif
 
 fallback_opt = ['default_library=static']
 
@@ -324,9 +327,6 @@ if jpeg.found()
   endif
 endif
 
-if get_option('tga')
-  texture_formats += 'tga'
-endif
 
 openal = dependency('openal',
   version:         '>= 1.18.0',

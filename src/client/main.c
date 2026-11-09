@@ -38,6 +38,8 @@ cvar_t  *r_maxfps;
 cvar_t  *cl_autopause;
 
 cvar_t  *cl_kickangles;
+cvar_t  *cl_screenshake;
+cvar_t  *cl_chasespec;
 cvar_t  *cl_rollhack;
 cvar_t  *cl_noglow;
 cvar_t  *cl_player_shells;
@@ -336,7 +338,8 @@ bool CL_ForwardToServer(void)
         // Kingpin servers convert any unrecognized client command into public chat (Cmd_Say_f).
         // Only forward commands that are registered server commands to prevent bogus binds
         // or typos from leaking into chat. Arbitrary commands can still be forwarded with 'cmd <args>'.
-        if (!Cmd_Exists(cmd)) {
+        // Commands from server stufftext (such as kpded2 anticheat cvar challenges) must be forwarded.
+        if (Cmd_From() != FROM_STUFFTEXT && !Cmd_Exists(cmd)) {
             return false;
         }
 
@@ -2745,8 +2748,79 @@ static void CL_Load_f(void)
     Com_Printf("Loading is not supported in multiplayer.\n");
 }
 
+static void CL_Chase_f(void)
+{
+    if (cls.state < ca_active)
+        return;
+
+    CL_ClientCommand("+activate");
+}
+
+static void CL_ChaseNext_f(void)
+{
+    if (cls.state < ca_active)
+        return;
+
+    CL_ClientCommand("invnext");
+}
+
+static void CL_ChasePrev_f(void)
+{
+    if (cls.state < ca_active)
+        return;
+
+    CL_ClientCommand("invprev");
+}
+
+static void CL_WeapNext_f(void)
+{
+    if (cl_chasespec && cl_chasespec->integer &&
+        cls.serverProtocol == PROTOCOL_VERSION_KINGPIN &&
+        cls.state == ca_active &&
+        !cls.demo.playback &&
+        cl.frame.ps.pmove.pm_type == PM_SPECTATOR)
+    {
+        if (CL_IsChasing()) {
+            CL_ClientCommand("invnext");
+        } else {
+            CL_ClientCommand("+activate");
+        }
+        return;
+    }
+
+    CL_ForwardToServer();
+}
+
+static void CL_WeapPrev_f(void)
+{
+    if (cl_chasespec && cl_chasespec->integer &&
+        cls.serverProtocol == PROTOCOL_VERSION_KINGPIN &&
+        cls.state == ca_active &&
+        !cls.demo.playback &&
+        cl.frame.ps.pmove.pm_type == PM_SPECTATOR)
+    {
+        if (CL_IsChasing()) {
+            CL_ClientCommand("invprev");
+        } else {
+            CL_ClientCommand("+activate");
+        }
+        return;
+    }
+
+    CL_ForwardToServer();
+}
+
+static void CL_ToggleChat_f(void)
+{
+    if (cl_oldchat) {
+        Cvar_SetValue(cl_oldchat, !cl_oldchat->integer, FROM_CODE);
+        Com_Printf("Old chat %s\n", cl_oldchat->integer ? "ON" : "OFF");
+    }
+}
+
 static const cmdreg_t c_client[] = {
     { "cmd", CL_ForwardToServer_f },
+    { "togglechat", CL_ToggleChat_f },
     { "pause", CL_Pause_f },
     { "pingservers", CL_PingServers_f },
     { "skins", CL_Skins_f },
@@ -2772,6 +2846,15 @@ static const cmdreg_t c_client[] = {
     { "-zoom", CL_ZoomUp_f },
     { "save", CL_Save_f },
     { "load", CL_Load_f },
+    { "chase", CL_Chase_f },
+    { "chasecam", CL_Chase_f },
+    { "chasenext", CL_ChaseNext_f },
+    { "chaseprev", CL_ChasePrev_f },
+    { "chase_next", CL_ChaseNext_f },
+    { "chase_prev", CL_ChasePrev_f },
+    { "follow", CL_ChaseNext_f },
+    { "weapnext", CL_WeapNext_f },
+    { "weapprev", CL_WeapPrev_f },
 
     //
     // forward to server commands
@@ -2786,7 +2869,7 @@ static const cmdreg_t c_client[] = {
     { "drop", NULL, CL_Item_c }, { "info" }, { "prog" },
     { "give", NULL, CL_Item_c }, { "god" }, { "notarget" }, { "noclip" },
     { "invuse" }, { "invprev" }, { "invnext" }, { "invdrop" },
-    { "weapnext" }, { "weapprev" }, { "weaplast" },
+    { "weaplast" },
     { "hud" }, { "holster" }, { "flashlight" }, { "reload" },
     { "key1" }, { "key2" }, { "key3" }, { "immortal" },
     { "invnextw" }, { "invprevw" }, { "invnextp" }, { "invprevp" },
@@ -2845,6 +2928,8 @@ static void CL_InitLocal(void)
     cl_predict = Cvar_Get("cl_predict", "1", 0);
     cl_predict->changed = cl_predict_changed;
     cl_kickangles = Cvar_Get("cl_kickangles", "1", CVAR_CHEAT);
+    cl_screenshake = Cvar_Get("cl_screenshake", "1", CVAR_ARCHIVE);
+    cl_chasespec = Cvar_Get("cl_chasespec", "1", CVAR_ARCHIVE);
     cl_warn_on_fps_rounding = Cvar_Get("cl_warn_on_fps_rounding", "1", 0);
     cl_maxfps = Cvar_Get("cl_maxfps", "62", 0);
     cl_maxfps->changed = cl_sync_changed;
@@ -2897,7 +2982,7 @@ static void CL_InitLocal(void)
     cl_updaterate->changed = cl_updaterate_changed;
 #endif
 
-    cl_chat_notify = Cvar_Get("cl_chat_notify", "1", 0);
+    cl_chat_notify = Cvar_Get("cl_chat_notify", "0", CVAR_ARCHIVE);
     cl_chat_sound = Cvar_Get("cl_chat_sound", "1", 0);
     cl_chat_sound->changed = cl_chat_sound_changed;
     cl_chat_sound_changed(cl_chat_sound);

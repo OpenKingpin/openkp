@@ -565,6 +565,8 @@ extern cvar_t   *cl_predict;
 extern cvar_t   *cl_footsteps;
 extern cvar_t   *cl_noskins;
 extern cvar_t   *cl_kickangles;
+extern cvar_t   *cl_screenshake;
+extern cvar_t   *cl_chasespec;
 extern cvar_t   *cl_rollhack;
 extern cvar_t   *cl_noglow;
 extern cvar_t   *cl_player_shells;
@@ -600,6 +602,8 @@ extern cvar_t   *cl_smooth_explosions;
 extern cvar_t   *cl_chat_notify;
 extern cvar_t   *cl_chat_sound;
 extern cvar_t   *cl_chat_filter;
+extern cvar_t   *cl_oldchat;
+extern cvar_t   *scr_chathud;
 
 extern cvar_t   *cl_disconnectcmd;
 extern cvar_t   *cl_changemapcmd;
@@ -629,6 +633,11 @@ extern cvar_t   *info_gender;
 extern cvar_t   *info_uf;
 
 //=============================================================================
+
+static inline bool CL_IsChasing(void)
+{
+    return (cl.frame.ps.pmove.pm_flags & PMF_CHASECAM) || (strstr(cl.layout, "Chasing ") != NULL);
+}
 
 static inline void CL_AdvanceValue(float *restrict val, float target, float speed)
 {
@@ -951,6 +960,9 @@ void CL_ExplosionKP(const vec3_t org, int type);
 void CL_RocketExplosionKP(const vec3_t org);
 void CL_BulletImpactKP(const vec3_t pos, const vec3_t dir, int type);
 void CL_BloodSpurtKP(const vec3_t pos, const vec3_t dir);
+void CL_FireKP(const vec3_t org, int count, int speed);
+void CL_SmokeKP(const vec3_t org, int count, int speed);
+void CL_SteamKP(const vec3_t org, const vec3_t dir, int count);
 void CL_TeleporterParticles(const vec3_t org);
 void CL_TeleportParticles(const vec3_t org);
 void CL_ParticleEffect(const vec3_t org, const vec3_t dir, int color, int count);

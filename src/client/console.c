@@ -782,6 +782,16 @@ static void Con_DrawNotify(void)
     R_ClearColor();
 
     if (cls.key_dest & KEY_MESSAGE) {
+        int prompt_x = CONCHAR_WIDTH;
+        int prompt_y = v;
+
+        if (scr_chathud && scr_chathud->integer && cl_chat_notify && !cl_chat_notify->integer) {
+            prompt_x = 8;
+            prompt_y = con.vidHeight - 70;
+            if (prompt_y < 0)
+                prompt_y = v;
+        }
+
         if (con.chat == CHAT_TEAM) {
             text = "say_team:";
             skip = 11;
@@ -790,10 +800,10 @@ static void Con_DrawNotify(void)
             skip = 5;
         }
 
-        R_DrawString(CONCHAR_WIDTH, v, 0, MAX_STRING_CHARS, text,
+        R_DrawString(prompt_x, prompt_y, 0, MAX_STRING_CHARS, text,
                      con.charsetImage);
         con.chatPrompt.inputLine.visibleChars = con.linewidth - skip + 1;
-        IF_Draw(&con.chatPrompt.inputLine, skip * CONCHAR_WIDTH, v,
+        IF_Draw(&con.chatPrompt.inputLine, prompt_x + (skip - 1) * CONCHAR_WIDTH, prompt_y,
                 UI_DRAWCURSOR, con.charsetImage);
     }
 }

@@ -81,11 +81,12 @@ static cvar_t   *scr_scale;
 
 static cvar_t   *scr_crosshair;
 
-static cvar_t   *scr_chathud;
+cvar_t          *scr_chathud;
 static cvar_t   *scr_chathud_lines;
 static cvar_t   *scr_chathud_time;
 static cvar_t   *scr_chathud_x;
 static cvar_t   *scr_chathud_y;
+cvar_t          *cl_oldchat;
 
 static cvar_t   *ch_health;
 static cvar_t   *ch_red;
@@ -1288,6 +1289,17 @@ static void ch_color_changed(cvar_t *self)
     scr.crosshair_color.u8[3] = Cvar_ClampValue(ch_alpha, 0, 1) * 255;
 }
 
+static void cl_oldchat_changed(cvar_t *self)
+{
+    if (self->integer) {
+        Cvar_Set("scr_chathud", "0");
+        Cvar_Set("cl_chat_notify", "1");
+    } else {
+        Cvar_Set("scr_chathud", "1");
+        Cvar_Set("cl_chat_notify", "0");
+    }
+}
+
 static void scr_crosshair_changed(cvar_t *self)
 {
     if (self->integer > 0) {
@@ -1431,13 +1443,18 @@ void SCR_Init(void)
     scr_graphscale = Cvar_Get("graphscale", "1", 0);
     scr_graphshift = Cvar_Get("graphshift", "0", 0);
 
-    scr_chathud = Cvar_Get("scr_chathud", "0", 0);
-    scr_chathud_lines = Cvar_Get("scr_chathud_lines", "4", 0);
-    scr_chathud_time = Cvar_Get("scr_chathud_time", "0", 0);
+    scr_chathud = Cvar_Get("scr_chathud", "1", CVAR_ARCHIVE);
+    scr_chathud_lines = Cvar_Get("scr_chathud_lines", "4", CVAR_ARCHIVE);
+    scr_chathud_time = Cvar_Get("scr_chathud_time", "15", CVAR_ARCHIVE);
     scr_chathud_time->changed = cl_timeout_changed;
     scr_chathud_time->changed(scr_chathud_time);
     scr_chathud_x = Cvar_Get("scr_chathud_x", "8", 0);
-    scr_chathud_y = Cvar_Get("scr_chathud_y", "-64", 0);
+    scr_chathud_y = Cvar_Get("scr_chathud_y", "-70", 0);
+
+    cl_oldchat = Cvar_Get("cl_oldchat", "0", CVAR_ARCHIVE);
+    cl_oldchat->changed = cl_oldchat_changed;
+    if (cl_oldchat->integer)
+        cl_oldchat->changed(cl_oldchat);
 
     ch_health = Cvar_Get("ch_health", "0", 0);
     ch_health->changed = ch_color_changed;
@@ -2117,13 +2134,13 @@ static void SCR_ExecuteLayoutString(const char *s)
         if (!strcmp(token, "pic")) {
             // draw a pic from a stat number
             token = COM_Parse(&s);
-            value = Q_atoi(token);
-            if (value < 0 || value >= cl.max_stats) {
-                Com_Error(ERR_DROP, "%s: invalid stat index", __func__);
+            int stat_num = Q_atoi(token);
+            if (stat_num < 0 || stat_num >= cl.max_stats) {
+                continue;
             }
-            value = cl.frame.ps.stats[value];
-            if (value < 0 || value >= cl.csr.max_images) {
-                Com_Error(ERR_DROP, "%s: invalid pic index", __func__);
+            value = cl.frame.ps.stats[stat_num];
+            if (value <= 0 || value >= cl.csr.max_images) {
+                continue;
             }
             token = cl.configstrings[cl.csr.images + value];
             if (token[0]) {
@@ -2157,7 +2174,7 @@ static void SCR_ExecuteLayoutString(const char *s)
             token = COM_Parse(&s);
             value = Q_atoi(token);
             if (value < 0 || value >= MAX_CLIENTS) {
-                Com_Error(ERR_DROP, "%s: invalid client index", __func__);
+                continue;
             }
             ci = &cl.clientinfo[value];
 
@@ -2198,7 +2215,7 @@ static void SCR_ExecuteLayoutString(const char *s)
             token = COM_Parse(&s);
             value = Q_atoi(token);
             if (value < 0 || value >= MAX_CLIENTS) {
-                Com_Error(ERR_DROP, "%s: invalid client index", __func__);
+                continue;
             }
             ci = &cl.clientinfo[value];
 
@@ -2234,7 +2251,7 @@ static void SCR_ExecuteLayoutString(const char *s)
             token = COM_Parse(&s);
             value = Q_atoi(token);
             if (value < 0 || value >= cl.max_stats) {
-                Com_Error(ERR_DROP, "%s: invalid stat index", __func__);
+                continue;
             }
             value = cl.frame.ps.stats[value];
             HUD_DrawNumber(x, y, 0, width, value);
@@ -2369,9 +2386,7 @@ static void SCR_ExecuteLayoutString(const char *s)
         if (!strcmp(token, "picnote")) {
             const char *pic_name = COM_Parse(&s);
             const char *note = COM_Parse(&s);
-            qhandle_t pic = R_RegisterImage(pic_name, IT_PIC, IF_PERMANENT | IF_OPTIONAL);
-            if (!pic)
-                pic = R_RegisterPic(pic_name);
+            qhandle_t pic = R_RegisterImage(pic_name, IT_PIC, IF_NONE | IF_OPTIONAL);
             if (pic)
                 R_DrawPic(x, y, pic);
             if (note && note[0])
@@ -2521,11 +2536,11 @@ static void SCR_ExecuteLayoutString(const char *s)
             token = COM_Parse(&s);
             index = Q_atoi(token);
             if (index < 0 || index >= cl.max_stats) {
-                Com_Error(ERR_DROP, "%s: invalid stat index", __func__);
+                continue;
             }
             index = cl.frame.ps.stats[index];
             if (index < 0 || index >= cl.csr.end) {
-                Com_Error(ERR_DROP, "%s: invalid string index", __func__);
+                continue;
             }
             token = cl.configstrings[index];
             if (!strcmp(cmd, "string")) {
@@ -2595,7 +2610,7 @@ static void SCR_ExecuteLayoutString(const char *s)
             token = COM_Parse(&s);
             value = Q_atoi(token);
             if (value < 0 || value >= cl.max_stats) {
-                Com_Error(ERR_DROP, "%s: invalid stat index", __func__);
+                continue;
             }
             value = cl.frame.ps.stats[value];
             if (!value) {   // skip to endif
@@ -2627,14 +2642,14 @@ static void SCR_ExecuteLayoutString(const char *s)
             token = COM_Parse(&s);
             value = Q_atoi(token);
             if (value < 0 || value >= cl.max_stats) {
-                Com_Error(ERR_DROP, "%s: invalid stat index", __func__);
+                continue;
             }
             value = cl.frame.ps.stats[value];
 
             token = COM_Parse(&s);
             index = Q_atoi(token);
             if (index < 0 || index >= cl.csr.end) {
-                Com_Error(ERR_DROP, "%s: invalid string index", __func__);
+                continue;
             }
 
             HUD_DrawCenterString(x + 320 / 2, y, cl.configstrings[index]);

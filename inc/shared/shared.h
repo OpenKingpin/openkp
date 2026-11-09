@@ -951,6 +951,7 @@ typedef enum {
 #define PMF_TIME_TELEPORT   BIT(5)      // pm_time is non-moving time
 #define PMF_NO_PREDICTION   BIT(6)      // temporarily disables prediction (used for grappling hook)
 #define PMF_TELEPORT_BIT    BIT(7)      // used by Q2PRO (non-extended servers)
+#define PMF_CHASECAM        BIT(7)      // Kingpin: spectating / chasing another player
 
 //KEX
 #define PMF_IGNORE_PLAYER_COLLISION     BIT(7)
@@ -1401,6 +1402,10 @@ typedef enum {
     TE_CONCUSSION_EXPLOSION_BIG,
     TE_IMPACT,
     TE_IMPACT_CONCUSSION,
+    TE_KP_FIRE_PARTICLES,
+    TE_KP_SMOKE_PARTICLES,
+    TE_KP_STEAM_PARTICLES,
+    TE_KP_NONE,
 
     TE_DAMAGE_DEALT = 128,
 

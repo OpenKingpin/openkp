@@ -361,6 +361,20 @@ static void IN_AttackDown(void)
 {
     KeyDown(&in_attack);
 
+    if (cl_chasespec && cl_chasespec->integer &&
+        cls.serverProtocol == PROTOCOL_VERSION_KINGPIN &&
+        cls.state == ca_active &&
+        !cls.demo.playback &&
+        cl.frame.ps.pmove.pm_type == PM_SPECTATOR)
+    {
+        if (CL_IsChasing()) {
+            CL_ClientCommand("invnext");
+        } else {
+            CL_ClientCommand("+activate");
+        }
+        return;
+    }
+
     if (cl_instantpacket->integer && cls.state == ca_active && !cls.demo.playback) {
         cl.sendPacketNow = true;
     }
