@@ -1531,6 +1531,7 @@ static cvar_t   *r_texture_overrides;
 #endif
 
 static cvar_t   *r_glowmaps;
+extern cvar_t   *r_hires;
 
 static const cmd_option_t o_imagelist[] = {
     { "8", "pal", "list paletted images" },
@@ -1850,7 +1851,7 @@ static void print_error(const char *name, imageflags_t flags, int err)
             return;
         } else if ((flags & (IF_PERMANENT | IF_OPTIONAL)) == IF_PERMANENT) {
             // ugly hack for console code
-            if (strcmp(name, "pics/conchars.pcx"))
+            if (strcmp(name, "pics/conchars.pcx") && strcmp(name, "pics/conchars.tga"))
                 level = PRINT_WARNING;
         } else if (COM_DEVELOPER >= 2) {
             level = PRINT_DEVELOPER;
@@ -1866,18 +1867,77 @@ static void print_error(const char *name, imageflags_t flags, int err)
     Com_LPrintf(level, "Couldn't load %s: %s\n", Com_MakePrintable(name), msg);
 }
 
+#if USE_PNG || USE_JPG || USE_TGA
+static int try_hires_image(image_t *image, imageformat_t orig, byte **pic)
+{
+    char hires_name[MAX_QPATH];
+    void *data;
+    size_t len;
+    int i, ret;
+    imageformat_t fmt;
+
+    if (!r_hires || !r_hires->integer)
+        return Q_ERR(ENOENT);
+
+    if (!strncmp(image->name, "hires/", 6))
+        return Q_ERR(ENOENT);
+
+    len = Q_concat(hires_name, sizeof(hires_name), "hires/", image->name);
+    if (len >= sizeof(hires_name))
+        return Q_ERR(ENOENT);
+
+    size_t hires_baselen = image->baselen + 6;
+
+    // Search through all 32-bit formats in priority order
+    for (i = 0; i < img_total; i++) {
+        fmt = img_search[i];
+        memcpy(hires_name + hires_baselen + 1, img_loaders[fmt].ext, 4);
+        ret = FS_LoadFile(hires_name, &data);
+        if (data) {
+            ret = img_loaders[fmt].load(data, ret, image, pic);
+            FS_FreeFile(data);
+            if (ret >= 0) {
+                Com_DPrintf("Loaded hi-res image %s\n", hires_name);
+                return fmt;
+            }
+        }
+    }
+
+    // Check with original format extension if it was 32-bit (e.g. .tga requested directly)
+    if (orig > IM_WAL && orig < IM_MAX) {
+        memcpy(hires_name + hires_baselen + 1, img_loaders[orig].ext, 4);
+        ret = FS_LoadFile(hires_name, &data);
+        if (data) {
+            ret = img_loaders[orig].load(data, ret, image, pic);
+            FS_FreeFile(data);
+            if (ret >= 0) {
+                Com_DPrintf("Loaded hi-res image %s\n", hires_name);
+                return orig;
+            }
+        }
+    }
+
+    return Q_ERR(ENOENT);
+}
+#endif
+
 static int load_image_data(image_t *image, imageformat_t fmt, bool need_dimensions, byte **pic)
 {
     int ret;
 
 #if USE_PNG || USE_JPG || USE_TGA
+    if (r_hires && r_hires->integer && strncmp(image->name, "hires/", 6) != 0) {
+        ret = try_hires_image(image, fmt, pic);
+        if (ret >= 0) {
+            if (need_dimensions && fmt <= IM_WAL && ret > IM_WAL)
+                get_image_dimensions(fmt, image);
+            return ret;
+        }
+    }
+
     if (fmt == IM_MAX) {
         // unknown extension, but give it a chance to load anyway
         ret = try_other_formats(IM_MAX, image, pic);
-        if (ret == Q_ERR(ENOENT)) {
-            // not found, change error to invalid path
-            ret = Q_ERR_INVALID_PATH;
-        }
     } else if (need_override_image(image->type, fmt)) {
         // forcibly replace the extension
         ret = try_other_formats(IM_MAX, image, pic);
@@ -1974,10 +2034,18 @@ static image_t *find_or_load_image(const char *name, size_t len,
     Q_assert(len < MAX_QPATH);
     baselen = COM_FileExtension(name) - name;
 
-    // must have an extension and at least 1 char of base name
-    if (baselen < 1 || name[baselen] != '.') {
+    // must have at least 1 char of base name
+    if (baselen < 1) {
         ret = Q_ERR_INVALID_PATH;
         goto fail;
+    }
+
+    if (name[baselen] != '.') {
+        // No extension provided: ensure room for dot and 3-char ext
+        if (len + 4 >= MAX_QPATH) {
+            ret = Q_ERR(ENAMETOOLONG);
+            goto fail;
+        }
     }
 
     hash = FS_HashPathLen(name, baselen, RIMAGES_HASH);
@@ -2001,15 +2069,23 @@ static image_t *find_or_load_image(const char *name, size_t len,
 
     // fill in some basic info
     memcpy(image->name, name, len + 1);
+    if (name[baselen] != '.') {
+        image->name[baselen] = '.';
+        image->name[baselen + 1] = '\0';
+    }
     image->baselen = baselen;
     image->type = type;
     image->flags = flags;
     image->registration_sequence = r_registration_sequence;
 
     // find out original extension
-    for (fmt = 0; fmt < IM_MAX; fmt++)
-        if (!Q_stricmp(image->name + image->baselen + 1, img_loaders[fmt].ext))
-            break;
+    fmt = IM_MAX;
+    if (name[baselen] == '.') {
+        for (fmt = 0; fmt < IM_MAX; fmt++) {
+            if (!Q_stricmp(image->name + image->baselen + 1, img_loaders[fmt].ext))
+                break;
+        }
+    }
 
     // load the pic from disk
     pic = NULL;
@@ -2026,13 +2102,9 @@ static image_t *find_or_load_image(const char *name, size_t len,
 
     if (ret < 0) {
         print_error(image->name, flags, ret);
-        if (flags & IF_PERMANENT) {
-            memset(image, 0, sizeof(*image));
-        } else {
-            // don't reload temp pics every frame
-            image->upload_width = image->upload_height = 0;
-            List_Append(&r_imageHash[hash], &image->entry);
-        }
+        // don't reload missing pics every frame
+        image->upload_width = image->upload_height = 0;
+        List_Append(&r_imageHash[hash], &image->entry);
         return NULL;
     }
 
@@ -2137,13 +2209,22 @@ qhandle_t R_RegisterImage(const char *name, imagetype_t type, imageflags_t flags
 
     if (type == IT_SKIN || type == IT_SPRITE) {
         len = FS_NormalizePathBuffer(fullname, name, sizeof(fullname));
+    } else if (type == IT_FONT && (!strncmp(name, "fonts/", 6) || !strncmp(name, "pics/", 5))) {
+        len = FS_NormalizePathBuffer(fullname, name, sizeof(fullname));
+        if (len < sizeof(fullname))
+            len = COM_DefaultExtension(fullname, ".tga", sizeof(fullname));
     } else if (*name == '/' || *name == '\\') {
         len = FS_NormalizePathBuffer(fullname, name + 1, sizeof(fullname));
+        if (len < sizeof(fullname))
+            len = COM_DefaultExtension(fullname, ".tga", sizeof(fullname));
     } else {
-        len = Q_concat(fullname, sizeof(fullname), "pics/", name);
+        if (!strncmp(name, "pics/", 5))
+            len = FS_NormalizePathBuffer(fullname, name, sizeof(fullname));
+        else
+            len = Q_concat(fullname, sizeof(fullname), "pics/", name);
         if (len < sizeof(fullname)) {
             FS_NormalizePath(fullname);
-            len = COM_DefaultExtension(fullname, ".pcx", sizeof(fullname));
+            len = COM_DefaultExtension(fullname, ".tga", sizeof(fullname));
         }
     }
 

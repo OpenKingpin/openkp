@@ -54,10 +54,10 @@ Key differences from Quake II MD2:
 #define MDX_VERSION     4
 
 /** Maximum number of discrete triangles per MDX sub-mesh. */
-#define MDX_MAX_TRIANGLES   4096
+#define MDX_MAX_TRIANGLES   6144
 
 /** Maximum number of compressed vertices per frame. */
-#define MDX_MAX_VERTS       2048
+#define MDX_MAX_VERTS       4096
 
 /** Maximum number of keyframe animations supported in a single MDX model. */
 #define MDX_MAX_FRAMES      1024

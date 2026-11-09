@@ -30,7 +30,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define MD2_VERSION     8
 
 #define MD2_MAX_TRIANGLES   4096
-#define MD2_MAX_VERTS       2048
+#define MD2_MAX_VERTS       4096
 #define MD2_MAX_FRAMES      1024
 #define MD2_MAX_SKINS       32
 #define MD2_MAX_SKINNAME    64
@@ -60,7 +60,7 @@ typedef struct {
 } dmd2frame_t;
 
 #define MD2_MAX_FRAMESIZE \
-    (sizeof(dmd2frame_t) + sizeof(dmd2trivertx_t) * (MD2_MAX_VERTS - 1))
+    (sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + 7 * MD2_MAX_VERTS)
 
 // the glcmd format:
 // a positive integer starts a tristrip command, followed by that many

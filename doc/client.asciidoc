@@ -982,6 +982,15 @@ r_glowmaps::
     Enables loading of glowmap images as found in re-release. Only effective if
     ‘gl_shaders’ is enabled. Default value is 1.
 
+r_hires::
+    Enables loading of high resolution textures, skins, skyboxes, sprites,
+    and models from the Kingpin community ‘main/hires/’ directory. When
+    enabled, the engine checks ‘hires/’ before falling back to the standard
+    assets. Supports truecolor replacements (in TGA, PNG, or JPG) and 16-bit
+    vertex HD models without replacing original game files. Default value is 1.
+     - 0 — disabled
+     - 1 — enabled
+
 r_override_textures::
     Enables automatic overriding of palettized textures (in WAL or PCX format)
     with truecolor replacements (in PNG, JPG or TGA format) by stripping off

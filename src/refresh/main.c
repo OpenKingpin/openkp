@@ -63,6 +63,7 @@ cvar_t *gl_damageblend_frac;
 cvar_t *gl_waterwarp;
 cvar_t *gl_fog;
 cvar_t *gl_bloom;
+cvar_t *r_hires;
 cvar_t *gl_swapinterval;
 
 // development variables
@@ -1179,6 +1180,7 @@ static void GL_Register(void)
     Cvar_Get("r_showbbox", "0", 0);
     Cvar_Get("r_debug_lighting", "0", 0);
     Cvar_Get("r_drawworld", "1", 0);
+    r_hires = Cvar_Get("r_hires", "1", CVAR_ARCHIVE | CVAR_FILES);
     gl_clearcolor = Cvar_Get("gl_clearcolor", "black", 0);
     gl_clearcolor->changed = gl_clearcolor_changed;
     gl_clearcolor->generator = Com_Color_g;

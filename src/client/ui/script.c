@@ -790,6 +790,7 @@ static const char kp_menu_default[] =
     "action \"3840 x 2160\" \"vid_size 3840 2160\"\n"
     "values \"fullscreen\" vid_fullscreen windowed $$vid_modelist\n"
     "toggle \"vertical sync\" gl_swapinterval\n"
+    "toggle \"hires files\" r_hires\n"
     "range \"brightness\" vid_gamma 1.3 0.5\n"
     "pairs \"texture filter\" gl_texturemode "
         "nearest GL_NEAREST "

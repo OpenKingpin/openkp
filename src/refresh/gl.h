@@ -280,6 +280,7 @@ extern cvar_t *gl_fullbright;
 extern cvar_t *gl_vertexlight;
 extern cvar_t *gl_lightgrid;
 extern cvar_t *gl_showerrors;
+extern cvar_t *r_hires;
 
 typedef enum {
     CULL_OUT,

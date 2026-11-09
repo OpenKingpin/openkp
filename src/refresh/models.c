@@ -477,11 +477,22 @@ static int MOD_LoadMD2(model_t *model, const void *rawdata, size_t length)
     }
 
     // load all frames
+    bool is_hd = (header.framesize == (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header.num_xyz * 7));
     src_frame = (dmd2frame_t *)((byte *)rawdata + header.ofs_frames);
     dst_frame = model->frames;
     for (j = 0; j < header.num_frames; j++) {
-        LittleVector(src_frame->scale, dst_frame->scale);
-        LittleVector(src_frame->translate, dst_frame->translate);
+        const int8_t *v16 = NULL;
+        if (is_hd) {
+            vec3_t temp_scale;
+            LittleVector(src_frame->scale, temp_scale);
+            VectorScale(temp_scale, 1.0f / 256.0f, dst_frame->scale);
+            LittleVector(src_frame->translate, dst_frame->translate);
+            VectorMA(dst_frame->translate, 128.0f, temp_scale, dst_frame->translate);
+            v16 = (const int8_t *)((const byte *)src_frame->verts + header.num_xyz * sizeof(dmd2trivertx_t));
+        } else {
+            LittleVector(src_frame->scale, dst_frame->scale);
+            LittleVector(src_frame->translate, dst_frame->translate);
+        }
 
         // load frame vertices
         ClearBounds(mins, maxs);
@@ -492,9 +503,19 @@ static int MOD_LoadMD2(model_t *model, const void *rawdata, size_t length)
             src_vert = &src_frame->verts[vertIndices[i]];
             dst_vert = &mesh->verts[j * numverts + finalIndices[i]];
 
-            dst_vert->pos[0] = src_vert->v[0];
-            dst_vert->pos[1] = src_vert->v[1];
-            dst_vert->pos[2] = src_vert->v[2];
+            if (is_hd) {
+                int idx = vertIndices[i] * 3;
+                int v16_x = (src_vert->v[0] << 8) + v16[idx + 0];
+                int v16_y = (src_vert->v[1] << 8) + v16[idx + 1];
+                int v16_z = (src_vert->v[2] << 8) + v16[idx + 2];
+                dst_vert->pos[0] = (int16_t)(v16_x - 32768);
+                dst_vert->pos[1] = (int16_t)(v16_y - 32768);
+                dst_vert->pos[2] = (int16_t)(v16_z - 32768);
+            } else {
+                dst_vert->pos[0] = src_vert->v[0];
+                dst_vert->pos[1] = src_vert->v[1];
+                dst_vert->pos[2] = src_vert->v[2];
+            }
 
             val = src_vert->lightnormalindex;
             if (val >= NUMVERTEXNORMALS) {
@@ -670,10 +691,15 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
 
     byte *norm_indices = Z_Malloc(numverts * sizeof(byte));
     bool *smoothed = Z_Malloc(numverts * sizeof(bool));
+    bool is_hd = (header->framesize == (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header->num_xyz * 7));
 
     // Unpack compressed vertex positions and light normal indices for each keyframe
     src_frame = (const dmd2frame_t *)(rawdata + header->ofs_frames);
     for (j = 0; j < (int)header->num_frames; j++) {
+        const int8_t *v16 = NULL;
+        if (is_hd)
+            v16 = (const int8_t *)((const byte *)src_frame->verts + header->num_xyz * sizeof(dmd2trivertx_t));
+
         for (i = 0; i < numindices; i++) {
             const dmd2trivertx_t *src_vert;
             maliasvert_t *dst_vert;
@@ -682,9 +708,19 @@ static int MOD_LoadMDXObject(model_t *model, maliasmesh_t *mesh, int obj,
                 continue;
             src_vert = &src_frame->verts[vert_index[i]];
             dst_vert = &mesh->verts[j * numverts + final_index[i]];
-            dst_vert->pos[0] = src_vert->v[0];
-            dst_vert->pos[1] = src_vert->v[1];
-            dst_vert->pos[2] = src_vert->v[2];
+            if (is_hd) {
+                int idx = vert_index[i] * 3;
+                int v16_x = (src_vert->v[0] << 8) + v16[idx + 0];
+                int v16_y = (src_vert->v[1] << 8) + v16[idx + 1];
+                int v16_z = (src_vert->v[2] << 8) + v16[idx + 2];
+                dst_vert->pos[0] = (int16_t)(v16_x - 32768);
+                dst_vert->pos[1] = (int16_t)(v16_y - 32768);
+                dst_vert->pos[2] = (int16_t)(v16_z - 32768);
+            } else {
+                dst_vert->pos[0] = src_vert->v[0];
+                dst_vert->pos[1] = src_vert->v[1];
+                dst_vert->pos[2] = src_vert->v[2];
+            }
             val = src_vert->lightnormalindex;
             norm_indices[final_index[i]] = (byte)val;
             if (val >= NUMVERTEXNORMALS) {
@@ -804,7 +840,8 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
     if (header.num_xyz > MDX_MAX_VERTS || header.num_tris > MDX_MAX_TRIANGLES ||
         header.num_frames > MDX_MAX_FRAMES || header.num_skins > MDX_MAX_SKINS)
         err = "MDX header limit";
-    else if (header.framesize != (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header.num_xyz * sizeof(dmd2trivertx_t)))
+    else if (header.framesize != (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header.num_xyz * sizeof(dmd2trivertx_t)) &&
+             header.framesize != (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header.num_xyz * 7))
         err = "Bad MDX frame size";
     else if ((uint64_t)header.ofs_frames + (uint64_t)header.framesize * header.num_frames > length)
         err = "Bad MDX frame offset";
@@ -817,10 +854,16 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         return Q_ERR_INVALID_FORMAT;
     }
 
-    vert_index = Z_Malloc(header.num_tris * 3 * sizeof(vert_index[0]));
-    vert_s = Z_Malloc(header.num_tris * 3 * sizeof(vert_s[0]));
-    vert_t = Z_Malloc(header.num_tris * 3 * sizeof(vert_t[0]));
-    vert_obj = Z_Malloc(header.num_tris * 3);
+    uint32_t max_tris = header.num_tris;
+    if (header.num_glcmds / 3 + 16 > max_tris)
+        max_tris = header.num_glcmds / 3 + 16;
+    if (max_tris > TESS_MAX_INDICES / 3)
+        max_tris = TESS_MAX_INDICES / 3;
+
+    vert_index = Z_Malloc(max_tris * 3 * sizeof(vert_index[0]));
+    vert_s = Z_Malloc(max_tris * 3 * sizeof(vert_s[0]));
+    vert_t = Z_Malloc(max_tris * 3 * sizeof(vert_t[0]));
+    vert_obj = Z_Malloc(max_tris * 3);
     cmd_index = Z_Malloc(header.num_glcmds * sizeof(cmd_index[0]));
     cmd_s = Z_Malloc(header.num_glcmds * sizeof(cmd_s[0]));
     cmd_t = Z_Malloc(header.num_glcmds * sizeof(cmd_t[0]));
@@ -879,7 +922,7 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
         for (base = 0; base < num - 2; base++) {
             int order[3];
 
-            if (numindices + 3 > (int)header.num_tris * 3) {
+            if (numindices + 3 > (int)max_tris * 3) {
                 err = "Too many MDX triangles";
                 break;
             }
@@ -983,11 +1026,20 @@ static int MOD_LoadMDX(model_t *model, const void *rawdata, size_t length)
     }
 
     // Compute bounding boxes and spherical culling radii across all meshes for each frame
+    bool is_hd = (header.framesize == (uint32_t)(sizeof(dmd2frame_t) - sizeof(dmd2trivertx_t) + header.num_xyz * 7));
     src_frame = (dmd2frame_t *)((byte *)rawdata + header.ofs_frames);
     dst_frame = model->frames;
     for (j = 0; j < (int)header.num_frames; j++) {
-        LittleVector(src_frame->scale, dst_frame->scale);
-        LittleVector(src_frame->translate, dst_frame->translate);
+        if (is_hd) {
+            vec3_t temp_scale;
+            LittleVector(src_frame->scale, temp_scale);
+            VectorScale(temp_scale, 1.0f / 256.0f, dst_frame->scale);
+            LittleVector(src_frame->translate, dst_frame->translate);
+            VectorMA(dst_frame->translate, 128.0f, temp_scale, dst_frame->translate);
+        } else {
+            LittleVector(src_frame->scale, dst_frame->scale);
+            LittleVector(src_frame->translate, dst_frame->translate);
+        }
         ClearBounds(mins, maxs);
         for (k = 0; k < model->nummeshes; k++) {
             mesh = &model->meshes[k];
@@ -2044,7 +2096,7 @@ qhandle_t R_RegisterModel(const char *name)
     model_t *model;
     byte *rawdata;
     int (*load)(model_t *, const void *, size_t);
-    int ret;
+    int ret = 0;
 
     Q_assert(name);
 
@@ -2080,9 +2132,21 @@ qhandle_t R_RegisterModel(const char *name)
         goto done;
     }
 
-    ret = FS_LoadFile(normalized, (void **)&rawdata);
-    if (!rawdata)
-        goto fail1;
+    rawdata = NULL;
+    if (r_hires && r_hires->integer && strncmp(normalized, "hires/", 6) != 0) {
+        char hires_name[MAX_QPATH];
+        if (Q_concat(hires_name, sizeof(hires_name), "hires/", normalized) < sizeof(hires_name)) {
+            ret = FS_LoadFile(hires_name, (void **)&rawdata);
+            if (rawdata)
+                Com_DPrintf("Loaded hi-res model %s\n", hires_name);
+        }
+    }
+
+    if (!rawdata) {
+        ret = FS_LoadFile(normalized, (void **)&rawdata);
+        if (!rawdata)
+            goto fail1;
+    }
 
     if (ret < 4) {
         ret = Q_ERR_FILE_TOO_SMALL;
