@@ -739,6 +739,32 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
         ent->skinnum = 0;
         ent->hidden_parts = 0;
         V_AddEntity(ent);
+
+        if (s1->effects & EF_COLOR_SHELL) {
+            uint64_t sflags = s1->renderfx & RF_SHELL_MASK;
+            if (!sflags)
+                sflags = RF_SHELL_RED;
+            entity_t shell_ent = *ent;
+            shell_ent.flags = (orig_flags & ~RF_SHELL_MASK) | sflags | RF_TRANSLUCENT | RF_WEAPONSHELL;
+            shell_ent.alpha = 0.35f;
+            V_AddEntity(&shell_ent);
+        }
+    } else if (s1->effects & EF_COLOR_SHELL) {
+        uint64_t sflags = s1->renderfx & RF_SHELL_MASK;
+        if (!sflags)
+            sflags = RF_SHELL_RED;
+        for (i = 0; i < 3; i++) {
+            if (!models[i])
+                continue;
+            entity_t shell_ent = *ent;
+            shell_ent.model = models[i];
+            shell_ent.skin = 0;
+            shell_ent.skinnum = 0;
+            shell_ent.hidden_parts = s1->model_parts[i].invisible_objects;
+            shell_ent.flags = (orig_flags & ~RF_SHELL_MASK) | sflags | RF_TRANSLUCENT;
+            shell_ent.alpha = 0.35f;
+            V_AddEntity(&shell_ent);
+        }
     }
 
     // Kingpin Bagman cash bag indicator on player back
@@ -1189,7 +1215,7 @@ static void CL_AddPacketEntities(void)
             CL_AddKingpinModelParts(&ent, s1);
 
         // color shells generate a separate entity for the main model
-        if (effects & EF_COLOR_SHELL) {
+        if ((effects & EF_COLOR_SHELL) && ent.model) {
             // PMM - at this point, all of the shells have been handled
             // if we're in the rogue pack, set up the custom mixing, otherwise just
             // keep going
@@ -1454,11 +1480,13 @@ static int shell_effect_hack(const centity_t *ent)
             flags |= RF_SHELL_HALF_DAM;
     }
 
-    if (cl.csr.extended) {
+    if (cl.csr.extended || cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
         if (ent->current.morefx & EFX_DUALFIRE)
             flags |= RF_SHELL_LITE_GREEN;
-        if (ent->current.effects & EF_COLOR_SHELL)
-            flags |= ent->current.renderfx & RF_SHELL_MASK;
+        if (ent->current.effects & EF_COLOR_SHELL) {
+            int shell = ent->current.renderfx & RF_SHELL_MASK;
+            flags |= shell ? shell : RF_SHELL_RED;
+        }
     }
 
     return flags;
@@ -1539,6 +1567,8 @@ static void CL_AddViewWeapon(void)
 
     if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
         int drawn = 0;
+        int shell_flags = ent ? shell_effect_hack(ent) : 0;
+
         for (int p = 0; p < KP_MAX_MODEL_PARTS; p++) {
             const kp_model_part_t *part = &ps->gun_parts[p];
             byte left;
@@ -1575,6 +1605,13 @@ static void CL_AddViewWeapon(void)
                 gun.hidden_parts = (byte)~show;
                 V_AddEntity(&gun);
                 drawn++;
+
+                if (shell_flags) {
+                    entity_t shell_gun = gun;
+                    shell_gun.alpha *= 0.35f;
+                    shell_gun.flags = (gun.flags & ~RF_SHELL_MASK) | shell_flags | RF_TRANSLUCENT;
+                    V_AddEntity(&shell_gun);
+                }
             }
         }
         if (drawn > 0)
