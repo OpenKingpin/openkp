@@ -741,6 +741,47 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
         V_AddEntity(ent);
     }
 
+    // Kingpin Bagman cash bag indicator on player back
+    if (s1->renderfx2 & RF2_MONEYBAG) {
+        static qhandle_t money_model = 0;
+        if (!money_model)
+            money_model = R_RegisterModel("models/pu_icon/money/money_lg.md2");
+        if (money_model) {
+            vec3_t forward, right, up, offset;
+            vec3_t orig_origin, orig_oldorigin, orig_angles;
+            int orig_frame = ent->frame;
+            int orig_oldframe = ent->oldframe;
+
+            VectorCopy(ent->origin, orig_origin);
+            VectorCopy(ent->oldorigin, orig_oldorigin);
+            VectorCopy(ent->angles, orig_angles);
+
+            ent->model = money_model;
+            ent->skin = 0;
+            ent->skinnum = 0;
+            ent->frame = 0;
+            ent->oldframe = 0;
+            ent->hidden_parts = 0;
+
+            AngleVectors(s1->angles, forward, right, up);
+            VectorScale(forward, -18.0f, offset);
+            VectorMA(offset, 14.0f, up, offset);
+            VectorMA(offset, -4.0f, right, offset);
+
+            VectorAdd(ent->origin, offset, ent->origin);
+            VectorAdd(ent->oldorigin, offset, ent->oldorigin);
+            ent->angles[PITCH] += 30.0f;
+
+            V_AddEntity(ent);
+
+            VectorCopy(orig_origin, ent->origin);
+            VectorCopy(orig_oldorigin, ent->oldorigin);
+            VectorCopy(orig_angles, ent->angles);
+            ent->frame = orig_frame;
+            ent->oldframe = orig_oldframe;
+        }
+    }
+
     ent->skin = 0;
     ent->model = 0;
 }
@@ -1100,6 +1141,15 @@ static void CL_AddPacketEntities(void)
             has_alpha = true;
         }
 
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && (s1->renderfx2 & RF2_PASSALPHA)) {
+            if (effects) {
+                custom_alpha = 1.0f - (float)(effects - 1) * (1.0f / 254.0f);
+                custom_alpha = Q_clip(custom_alpha, 0.0f, 1.0f);
+                effects = 0;
+            }
+            has_alpha = true;
+        }
+
         if (s1->number == cl.frame.clientNum + 1 && cl.thirdPersonView && cl.thirdPersonAlpha != 1.0f) {
             custom_alpha *= cl.thirdPersonAlpha;
             has_alpha = true;
@@ -1351,6 +1401,9 @@ static void CL_AddPacketEntities(void)
             CL_TrackerTrail(cent, ent.origin);
             V_AddLight(ent.origin, 200, -1, -1, -1);
             has_trail = true;
+        } else if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && (effects & EF_KP_FLASHLIGHT)) {
+            V_AddLight(ent.origin, 300, 0.8f, 0.6f, 0.6f);
+            V_AddLight(ent.origin, 100, 1.0f, 1.0f, 1.0f);
         } else if (effects & EF_GREENGIB) {
             CL_DiminishingTrail(cent, ent.origin, DT_GREENGIB);
             has_trail = true;

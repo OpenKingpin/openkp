@@ -351,14 +351,14 @@ void CL_MuzzleFlash(void)
         break;
 
     case MZ_PISTOLA:
-        VectorSet(dl->color, 0.5f, 0.5f, 0.7f);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/pistol/pistola%i.wav", (Q_rand() % 3) + 1);
+        VectorSet(dl->color, 1.0f, 0.6f, 0.23f);
+        Q_snprintf(soundname, sizeof(soundname), "weapons/pistol/pistola%i.wav", (Q_rand() % 4) + 1);
         S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
         CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 24.0f, 8.0f, -6.0f }, 8.0f);
         break;
     case MZ_PISTOLF:
-        VectorSet(dl->color, 0.5f, 0.5f, 0.5f);
-        Q_snprintf(soundname, sizeof(soundname), "weapons/pistol/pistolf%i.wav", (Q_rand() % 3) + 1);
+        VectorSet(dl->color, 1.0f, 0.6f, 0.23f);
+        Q_snprintf(soundname, sizeof(soundname), "weapons/pistol/pistolf%i.wav", (Q_rand() % 4) + 1);
         S_StartSound(NULL, mz.entity, CHAN_WEAPON, S_RegisterSound(soundname), volume, ATTN_NORM, 0);
         CL_AddWeaponMuzzleFX(MFLASH_MACHN, (const vec3_t) { 24.0f, 8.0f, -6.0f }, 8.0f);
         break;
@@ -1001,14 +1001,23 @@ void CL_MuzzleFlash3(void)
     switch (mz.weapon) {
     case MZ3_LEADHIT_METAL:
     {
-        const char *tinsnd;
+        char tinsnd[64];
         vec3_t up = { 0, 0, 1 };
-        switch (Q_rand() % 3) {
-        case 0: tinsnd = "weapons/bullethit_tin.wav"; break;
-        case 1: tinsnd = "weapons/bullethit_tin2.wav"; break;
-        default: tinsnd = "weapons/bullethit_tin3.wav"; break;
+        switch (Q_rand() % 4) {
+        case 0:
+            Q_strlcpy(tinsnd, "weapons/bullethit_tin.wav", sizeof(tinsnd));
+            break;
+        case 1:
+            Q_strlcpy(tinsnd, "weapons/bullethit_tin2.wav", sizeof(tinsnd));
+            break;
+        case 2:
+            Q_strlcpy(tinsnd, "weapons/bullethit_tin3.wav", sizeof(tinsnd));
+            break;
+        default:
+            Q_snprintf(tinsnd, sizeof(tinsnd), "weapons/ric%d.wav", (Q_rand() % 3) + 1);
+            break;
         }
-        S_StartSound(NULL, mz.entity, CHAN_BODY, S_RegisterSound(tinsnd), 1.0f, ATTN_NORM, 0);
+        S_StartSound(NULL, mz.entity, CHAN_AUTO, S_RegisterSound(tinsnd), 1.0f, ATTN_NORM, 0.1f);
         CL_BulletImpactKP(pl->current.origin, up, TE_METAL_SPARKS);
         break;
     }
@@ -2091,13 +2100,17 @@ void CL_ExplosionKP(const vec3_t org, int type)
                        type == TE_CONCUSSION_EXPLOSION_BIG ||
                        type == TE_EXPLOSION2 ||
                        type == TE_EXPLOSION2_NL);
+    bool is_rocket = (type == TE_ROCKET_EXPLOSION ||
+                      type == TE_ROCKET_EXPLOSION_WATER);
 
-    // Screen shake based on distance to player view
-    VectorSubtract(org, cl.refdef.vieworg, diff);
-    dist = VectorLength(diff);
-    if (dist < 800.0f) {
-        float factor = 1.0f - (dist / 800.0f);
-        CL_AddScreenShake(factor * (is_water ? 5.0f : (is_grenade ? 7.0f : 9.5f)), is_water ? 250 : 400);
+    // Screen shake based on distance to player view (exclude rocket launcher impacts)
+    if (!is_rocket) {
+        VectorSubtract(org, cl.refdef.vieworg, diff);
+        dist = VectorLength(diff);
+        if (dist < 800.0f) {
+            float factor = 1.0f - (dist / 800.0f);
+            CL_AddScreenShake(factor * (is_water ? 5.0f : (is_grenade ? 7.0f : 9.5f)), is_water ? 250 : 400);
+        }
     }
 
     if (is_water) {

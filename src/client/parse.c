@@ -835,6 +835,10 @@ static void CL_ParseKingpinTEnt(int type)
 
     case TE_KP_BLOOD_DRIP:
     case TE_KP_BLOOD_SPLAT:
+        // On Kingpin 1.21 wire protocol, blood drip/splat are zero-byte no-ops.
+        te.type = TE_KP_NONE;
+        break;
+
     case TE_KP_BLOOD_POOL:
         CL_ReadPos(te.pos1);
         MSG_ReadDir(te.dir);
@@ -1231,7 +1235,7 @@ static void CL_ParseStartSoundPacket(void)
 
     snd.flags = flags = MSG_ReadByte();
 
-    if (cl.csr.extended && flags & SND_INDEX16)
+    if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN && cl.csr.extended && (flags & SND_INDEX16))
         snd.index = MSG_ReadWord();
     else
         snd.index = MSG_ReadByte();
@@ -1249,10 +1253,17 @@ static void CL_ParseStartSoundPacket(void)
     else
         snd.attenuation = DEFAULT_SOUND_PACKET_ATTENUATION;
 
-    if (flags & SND_OFFSET)
+    if (flags & SND_OFFSET) {
         snd.timeofs = MSG_ReadByte() / 1000.0f;
-    else
+    } else if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && (flags & 32)) {
+        // Kingpin flag 32 encodes negative pitch / voice offset magnitude * 64.
+        // Consume the parameter byte from the stream to maintain packet alignment.
+        float pitch_offset = -(MSG_ReadByte() / 64.0f);
+        (void)pitch_offset;
         snd.timeofs = 0;
+    } else {
+        snd.timeofs = 0;
+    }
 
     if (flags & SND_ENT) {
         // entity relative

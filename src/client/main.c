@@ -2925,7 +2925,7 @@ static void CL_InitLocal(void)
     cl_predict = Cvar_Get("cl_predict", "1", 0);
     cl_predict->changed = cl_predict_changed;
     cl_kickangles = Cvar_Get("cl_kickangles", "1", CVAR_CHEAT);
-    cl_screenshake = Cvar_Get("cl_screenshake", "1", CVAR_ARCHIVE);
+    cl_screenshake = Cvar_Get("cl_screenshake", "0", CVAR_ARCHIVE);
     cl_chasespec = Cvar_Get("cl_chasespec", "1", CVAR_ARCHIVE);
     cl_warn_on_fps_rounding = Cvar_Get("cl_warn_on_fps_rounding", "1", 0);
     cl_maxfps = Cvar_Get("cl_maxfps", "62", 0);
@@ -3019,10 +3019,8 @@ static void CL_InitLocal(void)
     info_uf = Cvar_Get("uf", "", CVAR_USERINFO);
     // kpded2 rejects protocol 32 clients whose userinfo ver is below 120.
     Cvar_Get("ver", "121", CVAR_USERINFO);
-    // Kingpin servers query parental lock and nocurse settings via stufftext cmd.
+    // Kingpin servers query nocurse settings via stufftext cmd.
     Cvar_Get("nocurse", "0", CVAR_ARCHIVE);
-    Cvar_Get("cl_parental_lock", "0", CVAR_ARCHIVE);
-    Cvar_Get("cl_parental_override", "0", CVAR_ARCHIVE);
     Cvar_Get("error", "0", 0);
     Cvar_Get("cv", "0", 0);
 
