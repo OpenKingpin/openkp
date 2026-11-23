@@ -140,11 +140,13 @@ void Cbuf_Execute(cmdbuf_t *buf)
     char    line[MAX_STRING_CHARS];
     int     quotes;
     bool    ok;
+    cmdbuf_t *prev = cmd_current;
 
     while (buf->cursize) {
         if (buf->waitCount > 0) {
             // skip out while text still remains in buffer, leaving it
             // for next frame (counter is decremented externally now)
+            cmd_current = prev;
             return;
         }
 
@@ -188,6 +190,8 @@ void Cbuf_Execute(cmdbuf_t *buf)
             Com_Printf("Line exceeded %i chars, discarded.\n", MAX_STRING_CHARS);
         }
     }
+
+    cmd_current = prev;
 }
 
 /*

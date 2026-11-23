@@ -1084,12 +1084,46 @@ static void Cvar_ResetAll_f(void)
     }
 }
 
-size_t Cvar_BitInfo(char *info, int bit)
+static size_t append_info_cvar(char *info, size_t total, cvar_t *var)
 {
     char    newi[MAX_INFO_STRING], *v;
-    cvar_t  *var;
-    size_t  len, total = 0;
+    size_t  len;
     int     c;
+
+    len = Q_concat(newi, sizeof(newi), "\\", var->name, "\\", var->string);
+    if (len >= sizeof(newi)) {
+        return total;
+    }
+    if (total + len >= MAX_INFO_STRING) {
+        return total;
+    }
+
+    // only copy ascii values
+    v = newi;
+    while (*v) {
+        c = *v++;
+        c &= 127;        // strip high bits
+        if (Q_isprint(c))
+            info[total++] = c;
+    }
+
+    return total;
+}
+
+size_t Cvar_BitInfo(char *info, int bit)
+{
+    cvar_t  *var;
+    size_t  total = 0;
+    static const char *const priority_userinfo[] = { "name", "skin" };
+
+    if (bit & CVAR_USERINFO) {
+        for (size_t p = 0; p < q_countof(priority_userinfo); p++) {
+            var = Cvar_FindVar(priority_userinfo[p]);
+            if (var && (var->flags & bit) && !(var->flags & CVAR_PRIVATE) && var->string[0]) {
+                total = append_info_cvar(info, total, var);
+            }
+        }
+    }
 
     for (var = cvar_vars; var; var = var->next) {
         if (!(var->flags & bit)) {
@@ -1101,22 +1135,19 @@ size_t Cvar_BitInfo(char *info, int bit)
         if (!var->string[0]) {
             continue;
         }
-        len = Q_concat(newi, sizeof(newi), "\\", var->name, "\\", var->string);
-        if (len >= sizeof(newi)) {
-            continue;
+        if (bit & CVAR_USERINFO) {
+            bool skip = false;
+            for (size_t p = 0; p < q_countof(priority_userinfo); p++) {
+                if (!strcmp(var->name, priority_userinfo[p])) {
+                    skip = true;
+                    break;
+                }
+            }
+            if (skip) {
+                continue;
+            }
         }
-        if (total + len >= MAX_INFO_STRING) {
-            break;
-        }
-
-        // only copy ascii values
-        v = newi;
-        while (*v) {
-            c = *v++;
-            c &= 127;        // strip high bits
-            if (Q_isprint(c))
-                info[total++] = c;
-        }
+        total = append_info_cvar(info, total, var);
     }
 
     info[total] = 0;
