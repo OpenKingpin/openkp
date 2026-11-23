@@ -1046,111 +1046,372 @@ void CL_BarrelExplodingParticles(const vec3_t org)
 /*
 ===============
 CL_FlameEffects
-Kingpin protocol 32 flamethrower and flameshooter particle jet & lighting.
+Kingpin protocol 32 flamethrower active weapon fire jet & dynamic lighting.
+Triggered when entity has RF2_FLAMETHROWER or RF2_FLAMESHOOTER.
 ===============
 */
 void CL_FlameEffects(const centity_t *cent, const entity_t *ent)
 {
     vec3_t forward, right, up;
-    vec3_t muzzle, mid;
+    vec3_t muzzle, mid, flame_end;
+    trace_t tr;
     cparticle_t *p;
     int i;
-    bool is_local = (cent->current.s.number == cl.frame.clientNum + 1);
+    bool is_firstperson = (cent->current.s.number == cl.frame.clientNum + 1 && !cl.thirdPersonView);
 
-    if (is_local) {
-        AngleVectors(cl.viewangles, forward, right, up);
+    if (is_firstperson) {
+        VectorCopy(cl.v_forward, forward);
+        VectorCopy(cl.v_right, right);
+        VectorCopy(cl.v_up, up);
+
+        float hand_mult = 1.0f;
+        if (info_hand && info_hand->integer == 1)
+            hand_mult = -1.0f;
+        else if (info_hand && info_hand->integer == 2)
+            hand_mult = 0.0f;
+
         VectorCopy(cl.refdef.vieworg, muzzle);
         VectorMA(muzzle, 18.0f, forward, muzzle);
-        VectorMA(muzzle, 5.0f, right, muzzle);
-        VectorMA(muzzle, -4.0f, up, muzzle);
+        VectorMA(muzzle, hand_mult * 7.0f, right, muzzle);
+        VectorMA(muzzle, -6.0f, up, muzzle);
+    } else if (cent->current.s.modelindex == MODELINDEX_PLAYER) {
+        AngleVectors(ent->angles, forward, right, up);
+        VectorCopy(ent->origin, muzzle);
+        // Position at held flamethrower height (waist/chest level: ~32.5 standing, ~16.0 ducking)
+        float z_offset = (cent->maxs[2] > 0 && cent->maxs[2] < 20) ? 16.0f : 32.5f;
+        muzzle[2] += z_offset;
+        VectorMA(muzzle, 24.0f, forward, muzzle);
+        VectorMA(muzzle, 7.0f, right, muzzle);
+        VectorMA(muzzle, -5.5f, up, muzzle);
     } else {
         AngleVectors(ent->angles, forward, right, up);
         VectorCopy(ent->origin, muzzle);
-        muzzle[2] += 16.0f;
-        VectorMA(muzzle, 24.0f, forward, muzzle);
-        VectorMA(muzzle, 6.0f, right, muzzle);
+        VectorMA(muzzle, 16.0f, forward, muzzle);
     }
 
-    // Dynamic orange flame illumination
-    V_AddLight(muzzle, 160 + (Q_rand() & 31), 1.0f, 0.55f, 0.15f);
-    VectorMA(muzzle, 100.0f, forward, mid);
+    // Dynamic blue-cyan ignition light at nozzle, transitioning to warm flame mid-stream
+    V_AddLight(muzzle, 150 + (Q_rand() & 31), 0.40f, 0.70f, 1.0f);
+    VectorMA(muzzle, 90.0f, forward, mid);
     V_AddLight(mid, 180 + (Q_rand() & 31), 1.0f, 0.45f, 0.1f);
 
-    // 1. Blue flame ignition near nozzle (Kingpin palette 224-227)
+    // Trace ahead to check for solid obstacle impact
+    VectorMA(muzzle, 550.0f, forward, flame_end);
+    CL_Trace(&tr, muzzle, flame_end, vec3_origin, vec3_origin, MASK_SOLID);
+
+    // If flame strikes a surface, add impact point light and bouncing flame splash
+    if (tr.fraction < 1.0f) {
+        vec3_t impact_light;
+        VectorMA(tr.endpos, 10.0f, tr.plane.normal, impact_light);
+        V_AddLight(impact_light, 130 + (Q_rand() & 31), 1.0f, 0.50f, 0.15f);
+
+        for (i = 0; i < 2; i++) {
+            p = CL_AllocParticle();
+            if (!p)
+                break;
+
+            p->time = cl.time;
+            p->color = -1;
+            p->rgba.u32 = MakeColor(255, 140 + (Q_rand() & 40), 20, 220);
+            p->scale = 1.6f + frand() * 1.0f;
+
+            VectorCopy(tr.endpos, p->org);
+            VectorMA(p->org, 2.0f, tr.plane.normal, p->org);
+
+            VectorScale(tr.plane.normal, 140.0f + frand() * 80.0f, p->vel);
+            VectorMA(p->vel, crand() * 60.0f, right, p->vel);
+            VectorMA(p->vel, crand() * 60.0f, up, p->vel);
+
+            VectorSet(p->accel, 0, 0, 25.0f);
+            p->alpha = 1.0f;
+            p->alphavel = -1.0f / (0.15f + frand() * 0.15f);
+        }
+    }
+
+    // 1. High-heat incandescent blue combustion pilot core at nozzle (sprites/fthrow_blue4.tga)
+    for (i = 0; i < 4; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+
+        p->time = cl.time;
+        p->color = -1;
+        if (i < 2) {
+            // Intense bright cyan-blue ignition core
+            p->rgba.u32 = MakeColor(50 + (Q_rand() & 40), 170 + (Q_rand() & 60), 255, 245);
+            p->scale = 1.1f + frand() * 0.4f;
+        } else {
+            // Deep incandescent cobalt blue flame
+            p->rgba.u32 = MakeColor(30 + (Q_rand() & 30), 100 + (Q_rand() & 50), 240, 220);
+            p->scale = 1.4f + frand() * 0.5f;
+        }
+
+        VectorCopy(muzzle, p->org);
+        VectorMA(p->org, frand() * 10.0f, forward, p->org);
+        VectorMA(p->org, crand() * 1.5f, right, p->org);
+        VectorMA(p->org, crand() * 1.5f, up, p->org);
+
+        float speed = 750.0f + frand() * 120.0f;
+        VectorScale(forward, speed, p->vel);
+        VectorMA(p->vel, crand() * 15.0f, right, p->vel);
+        VectorMA(p->vel, crand() * 15.0f, up, p->vel);
+
+        VectorSet(p->accel, 0, 0, 15.0f);
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.06f + frand() * 0.05f);
+    }
+
+    // 2. Main churning flame stream (rich golden yellow to fiery orange and red)
+    float max_spawn_offset = tr.fraction * 240.0f;
+    for (i = 0; i < 5; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+
+        p->time = cl.time;
+        p->color = -1;
+        int r_pick = Q_rand() % 4;
+        if (r_pick == 0) {
+            // Intense bright yellow-orange core
+            p->rgba.u32 = MakeColor(255, 215 + (Q_rand() & 25), 45 + (Q_rand() & 25), 240);
+        } else if (r_pick == 1 || r_pick == 2) {
+            // Roaring fiery orange
+            p->rgba.u32 = MakeColor(255, 140 + (Q_rand() & 40), 20 + (Q_rand() & 15), 220);
+        } else {
+            // Deep incandescent crimson flame
+            p->rgba.u32 = MakeColor(230, 60 + (Q_rand() & 35), 10, 200);
+        }
+
+        p->scale = 1.5f + frand() * 1.4f;
+
+        float offset = frand() * max_spawn_offset;
+        VectorCopy(muzzle, p->org);
+        VectorMA(p->org, offset, forward, p->org);
+        VectorMA(p->org, crand() * 3.5f, right, p->org);
+        VectorMA(p->org, crand() * 3.5f, up, p->org);
+
+        float speed = 720.0f + frand() * 180.0f;
+        VectorScale(forward, speed, p->vel);
+        VectorMA(p->vel, crand() * 30.0f, right, p->vel);
+        VectorMA(p->vel, crand() * 30.0f, up, p->vel);
+
+        // Buoyancy: flames billow and rise slightly as they expand
+        VectorSet(p->accel, 0, 0, 35.0f + frand() * 25.0f);
+
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.28f + frand() * 0.20f);
+    }
+
+    // 3. Wispy glowing embers & soft translucent warm smoke (tail dissipation)
+    if (frand() > 0.35f) {
+        p = CL_AllocParticle();
+        if (p) {
+            p->time = cl.time;
+            p->color = -1;
+
+            if (Q_rand() & 1) {
+                // Soft translucent warm dark smoke
+                p->rgba.u32 = MakeColor(65, 55, 50, 60);
+                p->scale = 2.4f + frand() * 1.2f;
+                p->alpha = 0.55f;
+            } else {
+                // Glowing dying ember
+                p->rgba.u32 = MakeColor(180 + (Q_rand() & 30), 45, 12, 130);
+                p->scale = 1.4f + frand() * 0.8f;
+                p->alpha = 0.75f;
+            }
+
+            float offset = 55.0f + frand() * (max_spawn_offset > 60.0f ? max_spawn_offset - 55.0f : 10.0f);
+            VectorCopy(muzzle, p->org);
+            VectorMA(p->org, offset, forward, p->org);
+            VectorMA(p->org, crand() * 8.0f, right, p->org);
+            VectorMA(p->org, crand() * 8.0f, up, p->org);
+
+            float speed = 250.0f + frand() * 120.0f;
+            VectorScale(forward, speed, p->vel);
+            VectorMA(p->vel, crand() * 20.0f, right, p->vel);
+            VectorMA(p->vel, 25.0f + frand() * 20.0f, up, p->vel);
+
+            VectorSet(p->accel, 0, 0, 25.0f);
+            p->alphavel = -1.0f / (0.38f + frand() * 0.22f);
+        }
+    }
+}
+
+/*
+===============
+CL_FlamePilotViewEffect
+Idle blue pilot light at the first-person flamethrower nozzle.
+Flickering blue flame tongue and gentle blue glow matching flamepilot.wav.
+===============
+*/
+void CL_FlamePilotViewEffect(void)
+{
+    vec3_t forward, right, up, muzzle;
+    cparticle_t *p;
+
+    VectorCopy(cl.v_forward, forward);
+    VectorCopy(cl.v_right, right);
+    VectorCopy(cl.v_up, up);
+
+    float hand_mult = 1.0f;
+    if (info_hand && info_hand->integer == 1)
+        hand_mult = -1.0f;
+    else if (info_hand && info_hand->integer == 2)
+        hand_mult = 0.0f;
+
+    VectorCopy(cl.refdef.vieworg, muzzle);
+    VectorMA(muzzle, 19.5f, forward, muzzle);
+    VectorMA(muzzle, hand_mult * 7.2f, right, muzzle);
+    VectorMA(muzzle, -6.0f, up, muzzle);
+
+    // Subtle blue pilot flicker light
+    V_AddLight(muzzle, 35.0f + (Q_rand() & 15), 0.25f, 0.55f, 1.0f);
+
+    // Spawn 1-2 small dancing blue flame particles
+    for (int i = 0; i < 2; i++) {
+        p = CL_AllocParticle();
+        if (!p)
+            break;
+
+        p->time = cl.time;
+        p->color = -1;
+        if (i == 0) {
+            // Bright electric cyan-blue core
+            p->rgba.u32 = MakeColor(60 + (Q_rand() & 30), 180 + (Q_rand() & 40), 255, 235);
+            p->scale = 0.35f + frand() * 0.15f;
+        } else {
+            // Soft blue flame tip
+            p->rgba.u32 = MakeColor(30 + (Q_rand() & 20), 110 + (Q_rand() & 30), 240, 180);
+            p->scale = 0.45f + frand() * 0.20f;
+        }
+
+        VectorCopy(muzzle, p->org);
+        VectorMA(p->org, frand() * 1.5f, forward, p->org);
+        VectorMA(p->org, crand() * 0.8f, right, p->org);
+        VectorMA(p->org, crand() * 0.8f, up, p->org);
+
+        // Gentle puff and upward thermal draft
+        VectorScale(forward, 15.0f + frand() * 10.0f, p->vel);
+        VectorMA(p->vel, crand() * 5.0f, right, p->vel);
+        p->vel[2] += 20.0f + frand() * 12.0f;
+
+        VectorSet(p->accel, 0, 0, 10.0f);
+        p->alpha = 1.0f;
+        p->alphavel = -1.0f / (0.07f + frand() * 0.05f);
+    }
+}
+
+/*
+===============
+CL_FlamePilotEntityEffect
+Idle blue pilot light at the third-person held flamethrower nozzle.
+===============
+*/
+void CL_FlamePilotEntityEffect(const centity_t *cent, const entity_t *ent)
+{
+    // First-person local player is handled by CL_FlamePilotViewEffect
+    if (cent->current.s.number == cl.frame.clientNum + 1 && !cl.thirdPersonView)
+        return;
+
+    vec3_t forward, right, up, muzzle;
+    cparticle_t *p;
+
+    AngleVectors(ent->angles, forward, right, up);
+    VectorCopy(ent->origin, muzzle);
+    float z_offset = (cent->maxs[2] > 0 && cent->maxs[2] < 20) ? 16.0f : 32.5f;
+    muzzle[2] += z_offset;
+    VectorMA(muzzle, 25.0f, forward, muzzle);
+    VectorMA(muzzle, 7.0f, right, muzzle);
+    VectorMA(muzzle, -5.5f, up, muzzle);
+
+    V_AddLight(muzzle, 30.0f + (Q_rand() & 15), 0.2f, 0.5f, 0.9f);
+
+    p = CL_AllocParticle();
+    if (!p)
+        return;
+
+    p->time = cl.time;
+    p->color = -1;
+    p->rgba.u32 = MakeColor(50 + (Q_rand() & 30), 160 + (Q_rand() & 50), 255, 210);
+    p->scale = 0.5f + frand() * 0.25f;
+
+    VectorCopy(muzzle, p->org);
+    VectorMA(p->org, frand() * 2.0f, forward, p->org);
+    VectorMA(p->org, crand() * 1.0f, right, p->org);
+    VectorMA(p->org, crand() * 1.0f, up, p->org);
+
+    VectorScale(forward, 12.0f + frand() * 8.0f, p->vel);
+    p->vel[2] += 18.0f + frand() * 10.0f;
+
+    VectorSet(p->accel, 0, 0, 8.0f);
+    p->alpha = 1.0f;
+    p->alphavel = -1.0f / (0.08f + frand() * 0.06f);
+}
+
+/*
+===============
+CL_BurningBodyEffects
+Kingpin protocol 32 on-fire effect (EF_KP_FLAMETHROWER).
+Engulfs a burning player or actor in flickering fire tongues and rising smoke.
+===============
+*/
+void CL_BurningBodyEffects(const centity_t *cent, const entity_t *ent)
+{
+    cparticle_t *p;
+    int i;
+    float height = (cent->maxs[2] > 0) ? cent->maxs[2] : 48.0f;
+    float rad = (cent->maxs[0] > 0) ? cent->maxs[0] * 0.7f : 12.0f;
+
+    // Flickering warm orange illumination centered on the burning body
+    V_AddLight(ent->origin, 140 + (Q_rand() & 31), 1.0f, 0.50f, 0.10f);
+
+    // 1. Burning flame tongues erupting across torso and limbs
     for (i = 0; i < 3; i++) {
         p = CL_AllocParticle();
         if (!p)
             break;
 
         p->time = cl.time;
-        p->color = 224 + (Q_rand() & 3);
-        p->scale = 1.2f + frand() * 0.5f;
+        p->color = -1;
 
-        VectorCopy(muzzle, p->org);
-        VectorMA(p->org, frand() * 8.0f, forward, p->org);
-        VectorMA(p->org, crand() * 2.0f, right, p->org);
-        VectorMA(p->org, crand() * 2.0f, up, p->org);
+        if (Q_rand() & 1)
+            p->rgba.u32 = MakeColor(255, 190 + (Q_rand() & 40), 30, 230);
+        else
+            p->rgba.u32 = MakeColor(255, 120 + (Q_rand() & 50), 15, 210);
 
-        VectorScale(forward, 380.0f + frand() * 120.0f, p->vel);
-        VectorMA(p->vel, crand() * 15.0f, right, p->vel);
-        VectorMA(p->vel, crand() * 15.0f, up, p->vel);
+        p->scale = 1.3f + frand() * 0.9f;
 
-        VectorClear(p->accel);
+        p->org[0] = ent->origin[0] + crand() * rad;
+        p->org[1] = ent->origin[1] + crand() * rad;
+        p->org[2] = ent->origin[2] + frand() * height;
+
+        p->vel[0] = crand() * 15.0f;
+        p->vel[1] = crand() * 15.0f;
+        p->vel[2] = 45.0f + frand() * 45.0f;
+
+        VectorSet(p->accel, 0, 0, 30.0f);
         p->alpha = 1.0f;
-        p->alphavel = -1.0f / (0.08f + frand() * 0.06f);
+        p->alphavel = -1.0f / (0.22f + frand() * 0.15f);
     }
 
-    // 2. Main flame stream (Kingpin palette 197-207: bright yellow, fiery orange, flame red)
-    for (i = 0; i < 8; i++) {
-        p = CL_AllocParticle();
-        if (!p)
-            break;
-
+    // 2. Thick dark smoke billowing upward from the burning body
+    p = CL_AllocParticle();
+    if (p) {
         p->time = cl.time;
-        p->color = 197 + (Q_rand() % 11);
-        p->scale = 1.8f + frand() * 1.5f;
+        p->color = -1;
+        p->rgba.u32 = MakeColor(55, 48, 45, 55);
+        p->scale = 2.2f + frand() * 1.3f;
 
-        float offset = frand() * 24.0f;
-        VectorCopy(muzzle, p->org);
-        VectorMA(p->org, offset, forward, p->org);
-        VectorMA(p->org, crand() * 3.0f, right, p->org);
-        VectorMA(p->org, crand() * 3.0f, up, p->org);
+        p->org[0] = ent->origin[0] + crand() * (rad * 0.8f);
+        p->org[1] = ent->origin[1] + crand() * (rad * 0.8f);
+        p->org[2] = ent->origin[2] + height * 0.7f + frand() * 10.0f;
 
-        float speed = 650.0f + frand() * 200.0f;
-        VectorScale(forward, speed, p->vel);
-        VectorMA(p->vel, crand() * 35.0f, right, p->vel);
-        VectorMA(p->vel, crand() * 35.0f, up, p->vel);
+        p->vel[0] = crand() * 18.0f;
+        p->vel[1] = crand() * 18.0f;
+        p->vel[2] = 65.0f + frand() * 35.0f;
 
-        // Buoyancy: flames rise slightly as they burn
-        VectorSet(p->accel, 0, 0, 30.0f + frand() * 20.0f);
-
-        p->alpha = 1.0f;
-        p->alphavel = -1.0f / (0.30f + frand() * 0.25f);
-    }
-
-    // 3. Smoke puffs rising off the fire jet (Kingpin palette 0-3 / dark charcoal)
-    for (i = 0; i < 2; i++) {
-        p = CL_AllocParticle();
-        if (!p)
-            break;
-
-        p->time = cl.time;
-        p->color = 0 + (Q_rand() & 3);
-        p->scale = 2.2f + frand() * 1.2f;
-
-        float offset = 40.0f + frand() * 60.0f;
-        VectorCopy(muzzle, p->org);
-        VectorMA(p->org, offset, forward, p->org);
-        VectorMA(p->org, crand() * 8.0f, right, p->org);
-        VectorMA(p->org, crand() * 8.0f, up, p->org);
-
-        float speed = 250.0f + frand() * 150.0f;
-        VectorScale(forward, speed, p->vel);
-        VectorMA(p->vel, crand() * 25.0f, right, p->vel);
-        VectorMA(p->vel, 30.0f + frand() * 25.0f, up, p->vel);
-
-        VectorSet(p->accel, 0, 0, 15.0f);
-        p->alpha = 0.8f;
-        p->alphavel = -1.0f / (0.5f + frand() * 0.3f);
+        VectorSet(p->accel, 0, 0, 20.0f);
+        p->alpha = 0.50f;
+        p->alphavel = -1.0f / (0.45f + frand() * 0.25f);
     }
 }

@@ -137,35 +137,148 @@ static void GL_DrawVignette(float frac, color_t outer, color_t inner)
     tess.numindices += 24;
 }
 
+static unsigned cached_fire_seq = 0;
+static image_t *r_firescreen = NULL;
+
+static image_t *R_GetFireScreenImage(void)
+{
+    if (cached_fire_seq == r_registration_sequence)
+        return r_firescreen;
+
+    cached_fire_seq = r_registration_sequence;
+    r_firescreen = IMG_Find("sprites/firescreen.tga", IT_SPRITE, IF_PERMANENT | IF_OPTIONAL);
+    if (!r_firescreen || r_firescreen == R_NOTEXTURE || !r_firescreen->texnum)
+        r_firescreen = NULL;
+
+    return r_firescreen;
+}
+
+static inline bool R_IsFireBlend(const float blend[4])
+{
+    return (blend[0] > 0.8f &&
+            blend[1] > 0.5f &&
+            blend[1] < blend[0] &&
+            blend[2] < 0.2f);
+}
+
+static void GL_DrawFireScreen(const image_t *image, float alpha)
+{
+    vec_t *dst_vert;
+    glIndex_t *dst_indices;
+    color_t color;
+    float s0, t0, s1, t1;
+
+    if (tess.numverts)
+        GL_Flush2D();
+
+    tess.texnum[TMU_TEXTURE] = image->texnum;
+
+    // Kingpin random texture coordinate jitter (window size 0.8 x 0.8)
+    s0 = (float)((Q_rand() & 0x7fff) * (0.2 / 32768.0));
+    t0 = (float)((Q_rand() & 0x7fff) * (0.2 / 32768.0));
+    s1 = s0 + 0.8f;
+    t1 = t0 + 0.8f;
+
+    // Kingpin scales flame overlay alpha by 5.0
+    float a = min(max(alpha * 5.0f, 0.0f), 1.0f);
+    color.u8[0] = 255;
+    color.u8[1] = 255;
+    color.u8[2] = 255;
+    color.u8[3] = (byte)(a * 255.0f);
+
+    float x = glr.fd.x;
+    float y = glr.fd.y;
+    float w = glr.fd.width;
+    float h = glr.fd.height;
+
+    dst_vert = tess.vertices + tess.numverts * 5;
+    Vector4Set(dst_vert,      x,     y,     s0, t0);
+    Vector4Set(dst_vert +  5, x + w, y,     s1, t0);
+    Vector4Set(dst_vert + 10, x + w, y + h, s1, t1);
+    Vector4Set(dst_vert + 15, x,     y + h, s0, t1);
+
+    WN32(dst_vert +  4, color.u32);
+    WN32(dst_vert +  9, color.u32);
+    WN32(dst_vert + 14, color.u32);
+    WN32(dst_vert + 19, color.u32);
+
+    dst_indices = tess.indices + tess.numindices;
+    dst_indices[0] = tess.numverts + 0;
+    dst_indices[1] = tess.numverts + 2;
+    dst_indices[2] = tess.numverts + 3;
+    dst_indices[3] = tess.numverts + 0;
+    dst_indices[4] = tess.numverts + 1;
+    dst_indices[5] = tess.numverts + 2;
+
+    tess.flags |= GLS_BLEND_ADD;
+
+    tess.numverts += 4;
+    tess.numindices += 6;
+
+    GL_Flush2D();
+}
+
 void GL_Blend(void)
 {
     if (glr.fd.screen_blend[3]) {
-        color_t color;
+        if (R_IsFireBlend(glr.fd.screen_blend)) {
+            image_t *fire_img = R_GetFireScreenImage();
+            if (fire_img) {
+                GL_DrawFireScreen(fire_img, glr.fd.screen_blend[3]);
+            } else {
+                // Fallback when sprites/firescreen.tga is missing:
+                // Draw a flame perimeter vignette so player vision is not completely obscured
+                color_t outer, inner;
+                outer.u8[0] = 230;
+                outer.u8[1] = 130;
+                outer.u8[2] = 0;
+                outer.u8[3] = (byte)(min(glr.fd.screen_blend[3], 0.35f) * 255.0f);
+                inner.u32 = outer.u32 & U32_RGB;
+                GL_DrawVignette(0.35f, outer, inner);
+            }
+        } else {
+            color_t color;
 
-        color.u8[0] = glr.fd.screen_blend[0] * 255;
-        color.u8[1] = glr.fd.screen_blend[1] * 255;
-        color.u8[2] = glr.fd.screen_blend[2] * 255;
-        color.u8[3] = glr.fd.screen_blend[3] * 255;
+            color.u8[0] = glr.fd.screen_blend[0] * 255;
+            color.u8[1] = glr.fd.screen_blend[1] * 255;
+            color.u8[2] = glr.fd.screen_blend[2] * 255;
+            color.u8[3] = glr.fd.screen_blend[3] * 255;
 
-        GL_StretchPic_(glr.fd.x, glr.fd.y, glr.fd.width, glr.fd.height, 0, 0, 1, 1,
-                       color.u32, TEXNUM_WHITE, 0);
+            GL_StretchPic_(glr.fd.x, glr.fd.y, glr.fd.width, glr.fd.height, 0, 0, 1, 1,
+                           color.u32, TEXNUM_WHITE, 0);
+        }
     }
 
     if (glr.fd.damage_blend[3]) {
-        color_t outer, inner;
+        if (R_IsFireBlend(glr.fd.damage_blend)) {
+            image_t *fire_img = R_GetFireScreenImage();
+            if (fire_img) {
+                GL_DrawFireScreen(fire_img, glr.fd.damage_blend[3]);
+            } else {
+                color_t outer, inner;
+                outer.u8[0] = 230;
+                outer.u8[1] = 130;
+                outer.u8[2] = 0;
+                outer.u8[3] = (byte)(min(glr.fd.damage_blend[3], 0.35f) * 255.0f);
+                inner.u32 = outer.u32 & U32_RGB;
+                GL_DrawVignette(0.35f, outer, inner);
+            }
+        } else {
+            color_t outer, inner;
 
-        outer.u8[0] = glr.fd.damage_blend[0] * 255;
-        outer.u8[1] = glr.fd.damage_blend[1] * 255;
-        outer.u8[2] = glr.fd.damage_blend[2] * 255;
-        outer.u8[3] = glr.fd.damage_blend[3] * 255;
+            outer.u8[0] = glr.fd.damage_blend[0] * 255;
+            outer.u8[1] = glr.fd.damage_blend[1] * 255;
+            outer.u8[2] = glr.fd.damage_blend[2] * 255;
+            outer.u8[3] = glr.fd.damage_blend[3] * 255;
 
-        inner.u32 = outer.u32 & U32_RGB;
+            inner.u32 = outer.u32 & U32_RGB;
 
-        if (gl_damageblend_frac->value > 0)
-            GL_DrawVignette(Cvar_ClampValue(gl_damageblend_frac, 0, 0.5f), outer, inner);
-        else
-            GL_StretchPic_(glr.fd.x, glr.fd.y, glr.fd.width, glr.fd.height, 0, 0, 1, 1,
-                           outer.u32, TEXNUM_WHITE, 0);
+            if (gl_damageblend_frac->value > 0)
+                GL_DrawVignette(Cvar_ClampValue(gl_damageblend_frac, 0, 0.5f), outer, inner);
+            else
+                GL_StretchPic_(glr.fd.x, glr.fd.y, glr.fd.width, glr.fd.height, 0, 0, 1, 1,
+                               outer.u32, TEXNUM_WHITE, 0);
+        }
     }
 }
 

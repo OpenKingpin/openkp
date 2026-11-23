@@ -812,6 +812,22 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
     ent->model = 0;
 }
 
+static bool CL_EntityHasFlamethrower(const centity_t *cent)
+{
+    const centity_state_t *s1 = &cent->current;
+    if (s1->sound > 0 && s1->sound < cl.csr.max_sounds) {
+        const char *snd = cl.configstrings[cl.csr.sounds + s1->sound];
+        if (snd && strstr(snd, "flamepilot"))
+            return true;
+    }
+    if (s1->model_parts[3].modelindex > 0 && s1->model_parts[3].modelindex < cl.csr.max_models) {
+        const char *mdl = cl.configstrings[cl.csr.models + s1->model_parts[3].modelindex];
+        if (mdl && (strstr(mdl, "flame") || strstr(mdl, "fthrow")))
+            return true;
+    }
+    return false;
+}
+
 static void CL_AddPacketEntities(void)
 {
     entity_t                ent;
@@ -1111,9 +1127,13 @@ static void CL_AddPacketEntities(void)
         }
 
         if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
-            if ((s1->renderfx2 & (RF2_FLAMETHROWER | RF2_FLAMESHOOTER)) ||
-                (effects & EF_KP_FLAMETHROWER)) {
+            if (s1->renderfx2 & (RF2_FLAMETHROWER | RF2_FLAMESHOOTER)) {
                 CL_FlameEffects(cent, &ent);
+            } else if (CL_EntityHasFlamethrower(cent)) {
+                CL_FlamePilotEntityEffect(cent, &ent);
+            }
+            if (effects & EF_KP_FLAMETHROWER) {
+                CL_BurningBodyEffects(cent, &ent);
             }
         }
 
@@ -1492,6 +1512,27 @@ static int shell_effect_hack(const centity_t *ent)
     return flags;
 }
 
+static bool CL_IsFlamethrowerGun(const player_state_t *ps, const centity_t *ent)
+{
+    if (ent && ent->current.sound > 0 && ent->current.sound < cl.csr.max_sounds) {
+        const char *snd = cl.configstrings[cl.csr.sounds + ent->current.s.sound];
+        if (snd && strstr(snd, "flamepilot"))
+            return true;
+    }
+    if (ps->gun_parts[0].modelindex > 0 && ps->gun_parts[0].modelindex < cl.csr.max_models) {
+        const char *mdl = cl.configstrings[cl.csr.models + ps->gun_parts[0].modelindex];
+        if (mdl && (strstr(mdl, "flame") || strstr(mdl, "fthrow")))
+            return true;
+    }
+    int gunindex = ps->gunindex & GUNINDEX_MASK;
+    if (gunindex > 0 && gunindex < cl.csr.max_models) {
+        const char *mdl = cl.configstrings[cl.csr.models + gunindex];
+        if (mdl && (strstr(mdl, "flame") || strstr(mdl, "fthrow")))
+            return true;
+    }
+    return false;
+}
+
 /*
 ==============
 CL_AddViewWeapon
@@ -1641,11 +1682,11 @@ muzzle_flash:
 
     // add muzzle flash
     if (!cl.weapon.muzzle.model)
-        return;
+        goto out;
 
     if (cl.time - cl.weapon.muzzle.time > 50) {
         cl.weapon.muzzle.model = 0;
-        return;
+        goto out;
     }
 
     gun.flags = RF_FULLBRIGHT | RF_DEPTHHACK | RF_WEAPONMODEL | RF_TRANSLUCENT;
@@ -1667,6 +1708,14 @@ muzzle_flash:
     gun.angles[2] += cl.weapon.muzzle.roll;
 
     V_AddEntity(&gun);
+
+out:
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && !cl.thirdPersonView) {
+        if (CL_IsFlamethrowerGun(ps, ent) &&
+            !(ent && (ent->current.renderfx2 & (RF2_FLAMETHROWER | RF2_FLAMESHOOTER)))) {
+            CL_FlamePilotViewEffect();
+        }
+    }
 }
 
 static void CL_SetupFirstPersonView(void)
@@ -1942,6 +1991,111 @@ void CL_CalcViewValues(void)
 
 /*
 ===============
+CL_AddKingpinLightFlares
+
+Parses and emits Kingpin world light flares from CS_LIGHTFLARES_KP
+===============
+*/
+static void CL_AddKingpinLightFlares(void)
+{
+    if (cls.serverProtocol != PROTOCOL_VERSION_KINGPIN)
+        return;
+    if (!r_lightflares->integer)
+        return;
+    if (!cl.bsp || !cl_img_flare)
+        return;
+
+    for (int i = 0; i < MAX_LIGHTFLARES_KP; i++) {
+        const char *s = cl.configstrings[CS_LIGHTFLARES_KP + i];
+        if (!s || !*s)
+            break;
+
+        int style = 0, type = 0;
+        float x = 0, y = 0, z = 0, size = 0;
+        if (sscanf(s, "%i %i %f %f %f %f", &style, &type, &x, &y, &z, &size) != 6)
+            continue;
+
+        if (size <= 0.0f)
+            continue;
+
+        entity_t ent;
+        memset(&ent, 0, sizeof(ent));
+
+        if (type == 1) { // sun
+            vec3_t dir, end;
+            trace_t tr;
+            VectorSet(dir, x, y, z);
+            VectorMA(cl.refdef.vieworg, 8192.0f, dir, end);
+            CM_BoxTrace(&tr, cl.refdef.vieworg, end, vec3_origin, vec3_origin,
+                        cl.bsp->nodes, MASK_OPAQUE, cl.csr.extended);
+            if (!tr.surface || !(tr.surface->flags & SURF_SKY))
+                continue;
+            VectorMA(tr.endpos, -16.0f, dir, ent.origin);
+        } else {
+            VectorSet(ent.origin, x, y, z);
+        }
+
+        color_t color;
+        color.u8[3] = 255;
+        switch (type) {
+        case 2: // amber
+            color.u8[0] = 255;
+            color.u8[1] = 190;
+            color.u8[2] = 40;
+            break;
+        case 3: // red
+            color.u8[0] = 255;
+            color.u8[1] = 50;
+            color.u8[2] = 50;
+            break;
+        case 4: // blue
+            color.u8[0] = 60;
+            color.u8[1] = 130;
+            color.u8[2] = 255;
+            break;
+        case 5: // green
+            color.u8[0] = 60;
+            color.u8[1] = 255;
+            color.u8[2] = 60;
+            break;
+        default: // 0 normal, 1 sun
+            color.u8[0] = 255;
+            color.u8[1] = 255;
+            color.u8[2] = 255;
+            break;
+        }
+
+        int lightstyle_idx = style & ~2;
+        float ls_val = 1.0f;
+        if (lightstyle_idx >= 0 && lightstyle_idx < MAX_LIGHTSTYLES)
+            ls_val = r_lightstyles[lightstyle_idx].white;
+
+        if (ls_val <= 0.0f)
+            continue;
+
+        if (style & 2) {
+            // Bit 1 of style (value 2) means the flare resizes
+            ent.scale = (size / 50.0f) * ls_val;
+            ent.alpha = 1.0f;
+        } else {
+            ent.scale = size / 50.0f;
+            ent.alpha = ls_val > 1.0f ? 1.0f : ls_val;
+        }
+
+        if (ent.scale <= 0.0f || ent.alpha <= 0.0f)
+            continue;
+
+        ent.skin = cl_img_flare;
+        ent.flags = RF_FLARE | RF_TRANSLUCENT;
+        ent.rgba = color;
+        ent.skinnum = MAX_EDICTS_KP + i;
+
+        V_AddEntity(&ent);
+    }
+}
+
+/*
+===============
 CL_AddEntities
 
 Emits all entities, particles, and lights to the refresh
@@ -1956,6 +2110,7 @@ void CL_AddEntities(void)
     CL_AddParticles();
     CL_AddDLights();
     CL_AddLightStyles();
+    CL_AddKingpinLightFlares();
     LOC_AddLocationsToScene();
 }
 
