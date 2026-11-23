@@ -846,6 +846,12 @@ COLLISION DETECTION
 #define SURF_WNDW33             BIT(14)
 #define SURF_WNDW66             BIT(15)
 
+// Kingpin reflection and lighting surface flags
+#define SURF_SPECULAR           0x00000400
+#define SURF_DIFFUSE            0x00000800
+#define SURF_REFLECT_FAKE       0x10000000
+#define SURF_REFLECT_LIGHT      0x20000000
+
 // Kingpin surface flags for material and footstep identification
 #define SURF_WATER              BIT(19)     // 0x00080000
 #define SURF_CONCRETE           BIT(20)     // 0x00100000
@@ -1611,8 +1617,13 @@ enum {
 #define MAX_IMAGES_KP           256
 #define MAX_LIGHTFLARES_KP      128
 #define MAX_JUNIOR_STRINGS_KP   512
-#define CS_SERVER_VERSION_KP    29
+#define CS_FOG_DENSITY_KP       2
+#define CS_FOG_COLOR_KP         3
+#define CS_FOG_DENSITY2_KP      4
+#define CS_FOG_COLOR2_KP        5
+#define CS_SKY_KP               6
 #define CS_STATUSBAR_KP         7
+#define CS_SERVER_VERSION_KP    29
 #define CS_MAXCLIENTS_KP        30
 #define CS_MAPCHECKSUM_KP       31
 #define CS_MODELS_KP            32
