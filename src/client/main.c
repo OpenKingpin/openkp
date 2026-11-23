@@ -74,6 +74,7 @@ cvar_t  *cl_allow_vid_restart;
 
 cvar_t  *cl_gibs;
 cvar_t  *cl_flares;
+cvar_t  *r_lightflares;
 #if USE_FPS
 cvar_t  *cl_updaterate;
 #endif
@@ -769,7 +770,15 @@ void CL_Disconnect(error_type_t type)
     // stop download
     CL_CleanupDownloads();
 
+    bool game_locked = (fs_game->flags & CVAR_ROM) != 0;
+
     CL_ClearState();
+
+    if (type != ERR_RECONNECT && game_locked) {
+        if (Q_stricmp(fs_game->string, fs_game->default_string) != 0) {
+            Cvar_UserSet("game", fs_game->default_string);
+        }
+    }
 
     CL_GTV_Suspend();
 
@@ -2814,8 +2823,19 @@ static void CL_ToggleChat_f(void)
     }
 }
 
+static void CL_Menu_f(void)
+{
+    if (cls.state >= ca_connected) {
+        CL_ForwardToServer();
+        Con_Close(true);
+    } else {
+        UI_OpenMenu(UIMENU_MAIN);
+    }
+}
+
 static const cmdreg_t c_client[] = {
     { "cmd", CL_ForwardToServer_f },
+    { "menu", CL_Menu_f },
     { "togglechat", CL_ToggleChat_f },
     { "pause", CL_Pause_f },
     { "pingservers", CL_PingServers_f },
@@ -2875,6 +2895,7 @@ static const cmdreg_t c_client[] = {
     { "togglecam" }, { "showprops" }, { "hideprops" }, { "extracrispy" }, { "spawn" },
     { "ready" }, { "notready" }, { "stats" }, { "match" }, { "admin" }, { "login" },
     { "dropcash" }, { "callvote" }, { "id" }, { "maplist" }, { "motd" }, { "timeleft" },
+    { "botmenu" }, { "addbot" }, { "removebot" }, { "kickbot" }, { "bot" }, { "bots" },
 
     { NULL }
 };
@@ -2974,6 +2995,8 @@ static void CL_InitLocal(void)
     cl_flares = Cvar_Get("cl_flares", "1", 0);
     cl_flares->changed = cl_flares_changed;
 
+    r_lightflares = Cvar_Get("r_lightflares", "1", 0);
+
 #if USE_FPS
     cl_updaterate = Cvar_Get("cl_updaterate", "0", 0);
     cl_updaterate->changed = cl_updaterate_changed;
@@ -3008,9 +3031,9 @@ static void CL_InitLocal(void)
     info_password = Cvar_Get("password", "", CVAR_USERINFO);
     info_spectator = Cvar_Get("spectator", "0", CVAR_USERINFO);
     info_name = Cvar_Get("name", "unnamed", CVAR_USERINFO | CVAR_ARCHIVE);
-    info_skin = Cvar_Get("skin", "male/grunt", CVAR_USERINFO | CVAR_ARCHIVE);
+    info_skin = Cvar_Get("skin", "male_thug/001 001 001", CVAR_USERINFO | CVAR_ARCHIVE);
     info_rate = Cvar_Get("rate", "15000", CVAR_USERINFO | CVAR_ARCHIVE);
-    info_msg = Cvar_Get("msg", "1", CVAR_USERINFO | CVAR_ARCHIVE);
+    info_msg = Cvar_Get("msg", "0", CVAR_ARCHIVE);
     info_hand = Cvar_Get("hand", "0", CVAR_USERINFO | CVAR_ARCHIVE);
     info_hand->changed = info_hand_changed;
     info_fov = Cvar_Get("fov", "90", CVAR_USERINFO | CVAR_ARCHIVE);
