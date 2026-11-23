@@ -163,6 +163,10 @@ void CL_CleanupDownloads(void)
         cls.download.file = 0;
     }
 
+    if (cls.download.temp[0]) {
+        FS_RemoveFile(cls.download.temp);
+    }
+
     cls.download.temp[0] = 0;
 
 #if USE_ZLIB
@@ -299,6 +303,10 @@ static void finish_udp_download(const char *msg)
     if (cls.download.file) {
         FS_CloseFile(cls.download.file);
         cls.download.file = 0;
+    }
+
+    if (cls.download.temp[0]) {
+        FS_RemoveFile(cls.download.temp);
     }
 
     cls.download.temp[0] = 0;
@@ -847,10 +855,39 @@ static void CL_RequestKingpinDownloads(void)
 
     case PRECACHE_MAP:
         CL_RegisterBspModels();
+
+        if (allow_download_textures->integer && cl.bsp) {
+            for (i = 0; i < cl.bsp->numtexinfo; i++) {
+                const char *texname = cl.bsp->texinfo[i].name;
+                size_t len;
+
+                if (cl.bsp->texinfo[i].c.flags & SURF_NODRAW && cl.bsp->has_bspx)
+                    continue;
+
+                while (*texname == '/' || *texname == '\\')
+                    texname++;
+                if (!Q_strncasecmp(texname, "textures/", 9) || !Q_strncasecmp(texname, "textures\\", 9))
+                    texname += 9;
+                while (*texname == '/' || *texname == '\\')
+                    texname++;
+
+                if (!texname[0])
+                    continue;
+
+                len = Q_concat(fn, sizeof(fn), "textures/", texname, ".tga");
+                if (len < sizeof(fn))
+                    queue_kingpin_file(fn, DL_OTHER);
+            }
+        }
+
         precache_check = PRECACHE_FINAL;
         // fall through
 
     case PRECACHE_FINAL:
+        if (cls.download.pending || downloads_pending(DL_OTHER)) {
+            Com_DPrintf("%s: waiting for downloads...\n", __func__);
+            return;
+        }
         CL_Begin();
         break;
 
@@ -1005,8 +1042,9 @@ void CL_RequestNextDownload(void)
         }
 
         if (allow_download_textures->integer) {
+            int sky_cs = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? CS_SKY_KP : CS_SKY;
             for (i = 0; i < 6; i++) {
-                len = Q_concat(fn, sizeof(fn), "env/", cl.configstrings[CS_SKY], com_env_suf[i], ".tga");
+                len = Q_concat(fn, sizeof(fn), "env/", cl.configstrings[sky_cs], com_env_suf[i], ".tga");
                 check_file_len(fn, len, DL_OTHER);
             }
         }
@@ -1024,11 +1062,25 @@ void CL_RequestNextDownload(void)
         // load the map file before checking textures
         CL_RegisterBspModels();
 
-        if (allow_download_textures->integer) {
+        if (allow_download_textures->integer && cl.bsp) {
             for (i = 0; i < cl.bsp->numtexinfo; i++) {
+                const char *texname = cl.bsp->texinfo[i].name;
+
                 if (cl.bsp->texinfo[i].c.flags & SURF_NODRAW && cl.bsp->has_bspx)
                     continue;
-                len = Q_concat(fn, sizeof(fn), "textures/", cl.bsp->texinfo[i].name, ".wal");
+
+                while (*texname == '/' || *texname == '\\')
+                    texname++;
+                if (!Q_strncasecmp(texname, "textures/", 9) || !Q_strncasecmp(texname, "textures\\", 9))
+                    texname += 9;
+                while (*texname == '/' || *texname == '\\')
+                    texname++;
+
+                if (!texname[0])
+                    continue;
+
+                len = Q_concat(fn, sizeof(fn), "textures/", texname,
+                               cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? ".tga" : ".wal");
                 check_file_len(fn, len, DL_OTHER);
             }
         }

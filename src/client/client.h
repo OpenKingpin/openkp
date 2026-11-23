@@ -332,6 +332,10 @@ typedef struct {
 
     player_fog_t custom_fog;
 
+    // Kingpin fog configstrings (indices 2-5, raw strings stored pending format confirmation)
+    char kp_fog[4][MAX_QPATH];
+    int kp_hud_mode;
+
     // Kingpin screen shake
     struct {
         float   intensity;
@@ -611,6 +615,7 @@ extern cvar_t   *cl_beginmapcmd;
 
 extern cvar_t   *cl_gibs;
 extern cvar_t   *cl_flares;
+extern cvar_t   *r_lightflares;
 
 extern cvar_t   *cl_thirdperson;
 extern cvar_t   *cl_thirdperson_angle;
@@ -818,6 +823,7 @@ void V_AddEntity(const entity_t *ent);
 void V_AddParticle(const particle_t *p);
 void V_AddLight(const vec3_t org, float intensity, float r, float g, float b);
 void V_AddLightStyle(int style, float value);
+extern lightstyle_t r_lightstyles[MAX_LIGHTSTYLES];
 void CL_UpdateBlendSetting(void);
 
 
@@ -1006,6 +1012,9 @@ void CL_TeleporterParticles2(const vec3_t org);
 void CL_HologramParticles(const vec3_t org);
 void CL_BarrelExplodingParticles(const vec3_t org);
 void CL_FlameEffects(const centity_t *cent, const entity_t *ent);
+void CL_FlamePilotViewEffect(void);
+void CL_FlamePilotEntityEffect(const centity_t *cent, const entity_t *ent);
+void CL_BurningBodyEffects(const centity_t *cent, const entity_t *ent);
 
 
 //

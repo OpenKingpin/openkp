@@ -729,6 +729,12 @@ void CL_SetSky(void)
     int         autorotate = 1;
     vec3_t      axis;
 
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        VectorClear(axis);
+        R_SetSky(cl.configstrings[CS_SKY_KP], 0, false, axis);
+        return;
+    }
+
     if (cl.csr.extended)
         sscanf(cl.configstrings[CS_SKYROTATE], "%f %d", &rotate, &autorotate);
     else
@@ -888,6 +894,14 @@ void CL_UpdateConfigstring(int index)
         return;
     }
 
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        if (index >= CS_FOG_DENSITY_KP && index <= CS_FOG_COLOR2_KP) {
+            Q_strlcpy(cl.kp_fog[index - CS_FOG_DENSITY_KP], s, sizeof(cl.kp_fog[0]));
+            // Leave fog off until string format is confirmed
+            return;
+        }
+    }
+
     if (cls.state < ca_precached) {
         return;
     }
@@ -923,8 +937,15 @@ void CL_UpdateConfigstring(int index)
         return;
     }
 
-    if (index == CS_SKYROTATE || index == CS_SKYAXIS) {
-        CL_SetSky();
-        return;
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+        if (index == CS_SKY_KP) {
+            CL_SetSky();
+            return;
+        }
+    } else {
+        if (index == CS_SKYROTATE || index == CS_SKYAXIS) {
+            CL_SetSky();
+            return;
+        }
     }
 }
