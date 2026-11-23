@@ -574,7 +574,7 @@ void Key_SetDefaultBindings(void)
     Key_SetBinding(K_F11, "screenshot");
     Key_SetBinding(K_F12, "quit");
 
-    // System
+    // System & Playback
     Key_SetBinding(K_PAUSE, "pause");
     Key_SetBinding(K_ESCAPE, "togglemenu");
     Key_SetBinding('`', "toggleconsole");
@@ -582,6 +582,17 @@ void Key_SetDefaultBindings(void)
     Key_SetBinding('+', "sizeup");
     Key_SetBinding('=', "sizeup");
     Key_SetBinding('-', "sizedown");
+
+    // Demo / Media controls
+    Key_SetBinding(K_KP_5, "pause");
+    Key_SetBinding(K_KP_LEFTARROW, "seek -10");
+    Key_SetBinding(K_KP_RIGHTARROW, "seek +10");
+    Key_SetBinding(K_KP_DOWNARROW, "seek -30");
+    Key_SetBinding(K_KP_UPARROW, "seek +30");
+    Key_SetBinding(K_KP_HOME, "seek 0");
+    Key_SetBinding(K_KP_PLUS, "timescale 2");
+    Key_SetBinding(K_KP_MINUS, "timescale 0.5");
+    Key_SetBinding(K_KP_ENTER, "timescale 1");
 }
 
 static void Key_DefaultBinds_f(void)

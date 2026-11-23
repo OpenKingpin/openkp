@@ -618,6 +618,17 @@ static void UI_MenuQuit_f(void)
     }
 }
 
+static void UI_MenuDemo_f(void)
+{
+    menuFrameWork_t *menu = UI_FindMenu("kpdemo");
+    if (!menu) {
+        menu = UI_FindMenu("demos");
+    }
+    if (menu) {
+        UI_PushMenu(menu);
+    }
+}
+
 static void UI_ToggleMenu_f(void)
 {
     if (Key_GetDest() & KEY_MENU) {
@@ -636,6 +647,9 @@ static const cmdreg_t c_ui[] = {
     { "menu_loadgame", UI_MenuLoadgame_f },
     { "menu_keys", UI_MenuKeys_f },
     { "menu_quit", UI_MenuQuit_f },
+    { "demomenu", UI_MenuDemo_f },
+    { "menu_demo", UI_MenuDemo_f },
+    { "menu_demos", UI_MenuDemo_f },
 
     { NULL, NULL }
 };

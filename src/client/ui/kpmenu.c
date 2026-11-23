@@ -20,9 +20,12 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "ui.h"
 #include "../client.h"
+#include "common/cvar.h"
 
 #define KP_VIRTUAL_WIDTH   640
 #define KP_VIRTUAL_HEIGHT  480
+
+extern cvar_t *timescale;
 
 static struct {
     bool initialized;
@@ -39,6 +42,7 @@ static struct {
 
 static menuFrameWork_t kp_main;
 static menuFrameWork_t kp_gang;
+static menuFrameWork_t kp_demo;
 static menuFrameWork_t kp_options;
 static menuFrameWork_t kp_quit;
 
@@ -59,6 +63,67 @@ static menuSound_t KpDisconnectCmd(menuCommon_t *self)
 {
     Cbuf_AddText(&cmd_buffer, "disconnect\n");
     return QMS_OUT;
+}
+
+static menuSound_t KpDemoTogglePauseCmd(menuCommon_t *self)
+{
+    if (cls.demo.playback) {
+        Cbuf_AddText(&cmd_buffer, "pause\n");
+    } else if (cls.demo.recording) {
+        Cbuf_AddText(&cmd_buffer, "suspend\n");
+    } else {
+        Com_Printf("No demo playback or recording active.\n");
+        return QMS_BEEP;
+    }
+    return QMS_MOVE;
+}
+
+static menuSound_t KpDemoCycleSpeedCmd(menuCommon_t *self)
+{
+    float cur = timescale ? timescale->value : 1.0f;
+    float next;
+
+    if (cur < 0.35f) {
+        next = 0.5f;
+    } else if (cur < 0.75f) {
+        next = 1.0f;
+    } else if (cur < 1.5f) {
+        next = 2.0f;
+    } else if (cur < 3.0f) {
+        next = 4.0f;
+    } else {
+        next = 0.25f;
+    }
+
+    Cvar_Set("timescale", va("%.2f", next));
+    Com_Printf("Demo playback speed: %.2fx\n", next);
+    return QMS_MOVE;
+}
+
+static menuSound_t KpDemoRecordOrStopCmd(menuCommon_t *self)
+{
+    if (cls.demo.playback || cls.demo.recording) {
+        Cbuf_AddText(&cmd_buffer, "stop\n");
+        return QMS_MOVE;
+    }
+
+    if (cls.state != ca_active) {
+        Com_Printf("Must be in an active match to record a demo.\n");
+        return QMS_BEEP;
+    }
+
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    char name[64];
+    if (tm) {
+        strftime(name, sizeof(name), "kp_%Y%m%d_%H%M%S", tm);
+    } else {
+        Q_snprintf(name, sizeof(name), "kp_%d", cls.realtime);
+    }
+
+    Cbuf_AddText(&cmd_buffer, va("record \"%s\"\n", name));
+    UI_ForceMenuOff();
+    return QMS_SILENT;
 }
 
 static menuSound_t KpItemFocus(menuCommon_t *self, bool gain)
@@ -91,6 +156,9 @@ static kpMenuItem_t kp_gang_items[] = {
     { .action = { .generic = { .type = MTYPE_ACTION, .name = "PLAYER SETUP", .activate = KpCmd, .focus = KpItemFocus },
                   .cmd = "pushmenu players" },
       .desc = "CUSTOMIZE PLAYER NAME, THUG MODEL, AND GANG SKIN" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "DEMO CONTROLS", .activate = KpCmd, .focus = KpItemFocus },
+                  .cmd = "pushmenu kpdemo" },
+      .desc = "MATCH PLAYBACK, REWIND, SPEED, AND RECORDING" },
     { .action = { .generic = { .type = MTYPE_ACTION, .name = "DOWNLOAD OPTIONS", .activate = KpCmd, .focus = KpItemFocus },
                   .cmd = "pushmenu downloads" },
       .desc = "CONFIGURE AUTOMATIC MAP, TEXTURE, AND SOUND DOWNLOADS" },
@@ -100,6 +168,36 @@ static kpMenuItem_t kp_gang_items[] = {
     { .action = { .generic = { .type = MTYPE_ACTION, .name = "BACK", .activate = KpBackCmd, .focus = KpItemFocus },
                   .cmd = "" },
       .desc = "RETURN TO MAIN MENU" },
+};
+
+static kpMenuItem_t kp_demo_items[] = {
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "BROWSE DEMOS", .activate = KpCmd, .focus = KpItemFocus, .flags = QMF_HASFOCUS },
+                  .cmd = "pushmenu demos" },
+      .desc = "OPEN DEMO FILE BROWSER TO PLAY RECORDED MATCHES" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "PLAY / PAUSE", .activate = KpDemoTogglePauseCmd, .focus = KpItemFocus },
+                  .cmd = "" },
+      .desc = "PAUSE OR RESUME ACTIVE DEMO PLAYBACK OR RECORDING" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "REWIND 10 SECONDS", .activate = KpCmd, .focus = KpItemFocus },
+                  .cmd = "seek -10" },
+      .desc = "STEP BACKWARD 10 SECONDS IN ACTIVE PLAYBACK" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "FAST FORWARD 10 SECONDS", .activate = KpCmd, .focus = KpItemFocus },
+                  .cmd = "seek +10" },
+      .desc = "JUMP FORWARD 10 SECONDS IN ACTIVE PLAYBACK" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "CYCLE PLAYBACK SPEED", .activate = KpDemoCycleSpeedCmd, .focus = KpItemFocus },
+                  .cmd = "" },
+      .desc = "CYCLE PLAYBACK SPEED: 0.25X, 0.5X, 1.0X, 2.0X, 4.0X" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "TOGGLE PROGRESS BAR", .activate = KpCmd, .focus = KpItemFocus },
+                  .cmd = "toggle scr_demobar 0 1 2" },
+      .desc = "CYCLE TIMELINE AND FRAME PROGRESS OVERLAY" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "RESTART DEMO", .activate = KpCmd, .focus = KpItemFocus },
+                  .cmd = "seek 0" },
+      .desc = "RESTART CURRENT DEMO FROM THE FIRST FRAME" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "QUICK RECORD / STOP", .activate = KpDemoRecordOrStopCmd, .focus = KpItemFocus },
+                  .cmd = "" },
+      .desc = "TIMESTAMP RECORD CURRENT MATCH OR HALT ACTIVE DEMO" },
+    { .action = { .generic = { .type = MTYPE_ACTION, .name = "BACK", .activate = KpBackCmd, .focus = KpItemFocus },
+                  .cmd = "" },
+      .desc = "RETURN TO PREVIOUS MENU" },
 };
 
 static kpMenuItem_t kp_option_items[] = {
@@ -384,27 +482,64 @@ static menuSound_t KpQuitKey(menuFrameWork_t *menu, int key)
 /*
 ===================================================================
 
-SUBMENUS (Gang Bang, Options)
+SUBMENUS (Gang Bang, Demos, Options)
 
 ===================================================================
 */
 
-static void KpSubmenuSize(menuFrameWork_t *menu)
+static void KpSubmenuGetMetrics(menuFrameWork_t *menu, float *out_s, int *out_card_w, int *out_card_h,
+                                int *out_card_gap, int *out_logo_w, int *out_logo_h,
+                                int *out_header_h, int *out_start_y)
 {
     float s = KpGetUIScale();
 
     int card_w = min(uis.width - 40, Q_rint(540.0f * s));
     int card_h = Q_rint(54.0f * s);
     int card_gap = Q_rint(12.0f * s);
-    int total_cards_h = menu->nitems * card_h + (menu->nitems - 1) * card_gap;
 
     int logo_w = Q_rint(160.0f * s);
     int logo_h = Q_rint((float)logo_w * (127.0f / 226.0f));
+    int header_pad = Q_rint(65.0f * s);
+    int footer_h = Q_rint(36.0f * s);
 
-    int header_h = logo_h + Q_rint(65.0f * s);
-    int start_y = (uis.height - (header_h + total_cards_h)) / 2;
-    if (start_y < Q_rint(20.0f * s))
-        start_y = Q_rint(20.0f * s);
+    int avail_h = uis.height - footer_h - Q_rint(24.0f * s);
+    int total_needed = (logo_h + header_pad) + menu->nitems * card_h + (menu->nitems - 1) * card_gap;
+
+    if (total_needed > avail_h && menu->nitems > 0) {
+        float factor = (float)avail_h / (float)total_needed;
+        if (factor < 1.0f) {
+            if (factor < 0.52f)
+                factor = 0.52f;
+            card_h = max(26, Q_rint((float)card_h * factor));
+            card_gap = max(3, Q_rint((float)card_gap * factor));
+            logo_w = max(80, Q_rint((float)logo_w * factor));
+            logo_h = Q_rint((float)logo_w * (127.0f / 226.0f));
+            header_pad = max(28, Q_rint((float)header_pad * factor));
+        }
+    }
+
+    int header_h = logo_h + header_pad;
+    int total_cards_h = menu->nitems * card_h + (menu->nitems - 1) * card_gap;
+    int start_y = (uis.height - footer_h - (header_h + total_cards_h)) / 2;
+    if (start_y < Q_rint(12.0f * s))
+        start_y = Q_rint(12.0f * s);
+
+    *out_s = s;
+    *out_card_w = card_w;
+    *out_card_h = card_h;
+    *out_card_gap = card_gap;
+    *out_logo_w = logo_w;
+    *out_logo_h = logo_h;
+    *out_header_h = header_h;
+    *out_start_y = start_y;
+}
+
+static void KpSubmenuSize(menuFrameWork_t *menu)
+{
+    float s;
+    int card_w, card_h, card_gap, logo_w, logo_h, header_h, start_y;
+
+    KpSubmenuGetMetrics(menu, &s, &card_w, &card_h, &card_gap, &logo_w, &logo_h, &header_h, &start_y);
 
     int cards_y = start_y + header_h;
     int card_x = (uis.width - card_w) / 2;
@@ -427,9 +562,11 @@ static void KpSubmenuSize(menuFrameWork_t *menu)
 
 static void KpSubmenuDraw(menuFrameWork_t *menu)
 {
-    float s = KpGetUIScale();
+    float s;
+    int card_w, card_h, card_gap, logo_w, logo_h, header_h, start_y;
 
     KpSubmenuSize(menu);
+    KpSubmenuGetMetrics(menu, &s, &card_w, &card_h, &card_gap, &logo_w, &logo_h, &header_h, &start_y);
 
     /* 1. Black backing for pillarboxes and background */
     R_DrawFill32(0, 0, uis.width, uis.height, MakeColor(0, 0, 0, 255));
@@ -439,18 +576,6 @@ static void KpSubmenuDraw(menuFrameWork_t *menu)
     }
 
     /* 2. Top Header */
-    int logo_w = Q_rint(160.0f * s);
-    int logo_h = Q_rint((float)logo_w * (127.0f / 226.0f));
-    int card_w = min(uis.width - 40, Q_rint(540.0f * s));
-    int card_h = Q_rint(54.0f * s);
-    int card_gap = Q_rint(12.0f * s);
-    int total_cards_h = menu->nitems * card_h + (menu->nitems - 1) * card_gap;
-    int header_h = logo_h + Q_rint(65.0f * s);
-
-    int start_y = (uis.height - (header_h + total_cards_h)) / 2;
-    if (start_y < Q_rint(20.0f * s))
-        start_y = Q_rint(20.0f * s);
-
     int center_x = uis.width / 2;
 
     /* Stencil logo */
@@ -483,6 +608,18 @@ static void KpSubmenuDraw(menuFrameWork_t *menu)
     }
 
     const char *subtitle = menu->status;
+    char dyn_status[64];
+    if (menu == &kp_demo) {
+        if (cls.demo.playback) {
+            float spd = timescale ? timescale->value : 1.0f;
+            Q_snprintf(dyn_status, sizeof(dyn_status), "// PLAYBACK ACTIVE [%.2fX]", spd);
+            subtitle = dyn_status;
+        } else if (cls.demo.recording) {
+            Q_snprintf(dyn_status, sizeof(dyn_status), "// RECORDING MATCH%s", cls.demo.paused ? " (PAUSED)" : "");
+            subtitle = dyn_status;
+        }
+    }
+
     if (subtitle) {
         int sw = (int)strlen(subtitle) * sub_size;
         int sx = center_x - sw / 2;
@@ -494,7 +631,7 @@ static void KpSubmenuDraw(menuFrameWork_t *menu)
     }
 
     /* Sleek divider line with gold center accent */
-    int div_y = title_y + Q_rint(38.0f * s);
+    int div_y = title_y + title_size + sub_size + Q_rint(10.0f * s);
     int div_x1 = center_x - card_w / 2;
     R_DrawFill32(div_x1, div_y, card_w, 1, MakeColor(55, 48, 38, 200));
 
@@ -502,8 +639,8 @@ static void KpSubmenuDraw(menuFrameWork_t *menu)
     R_DrawFill32(center_x - accent_w / 2, div_y, accent_w, 2, MakeColor(230, 195, 115, 255));
 
     /* 3. Render Cards */
-    int font_item_size = max(9, Q_rint(12.0f * s));
-    int font_desc_size = max(7, Q_rint(8.5f * s));
+    int font_item_size = max(8, min(card_h / 2 - 2, Q_rint(12.0f * s)));
+    int font_desc_size = max(7, min(card_h / 2 - 4, Q_rint(8.5f * s)));
 
     for (int i = 0; i < menu->nitems; i++) {
         kpMenuItem_t *item = (kpMenuItem_t *)menu->items[i];
@@ -515,9 +652,11 @@ static void KpSubmenuDraw(menuFrameWork_t *menu)
         int ih = item->action.generic.height;
 
         int tab_w = focused ? max(4, Q_rint(5.0f * s)) : max(2, Q_rint(3.0f * s));
-        int text_x = ix + Q_rint(26.0f * s);
-        int t_y = iy + Q_rint(9.0f * s);
-        int d_y = iy + Q_rint(30.0f * s);
+        int text_x = ix + Q_rint(24.0f * s);
+        int t_y = iy + (ih - font_item_size - (item->desc ? (font_desc_size + 3) : 0)) / 2;
+        if (t_y < iy + 2)
+            t_y = iy + 2;
+        int d_y = t_y + font_item_size + 3;
 
         if (focused) {
             /* Focused card: warm dark slat, glowing border, amber left tab */
@@ -661,6 +800,8 @@ void M_Menu_Kingpin(void)
     /* Setup submenus */
     KpBind(&kp_gang, "kpgang", "gang bang", "// MULTIPLAYER OPERATIONS",
            kp_gang_items, q_countof(kp_gang_items));
+    KpBind(&kp_demo, "kpdemo", "demo theater", "// MATCH PLAYBACK & RECORDING",
+           kp_demo_items, q_countof(kp_demo_items));
     KpBind(&kp_options, "kpoptions", "options", "// SYSTEM CONFIGURATION",
            kp_option_items, q_countof(kp_option_items));
 
@@ -673,6 +814,7 @@ void M_Menu_Kingpin(void)
 
     List_Append(&ui_menus, &kp_main.entry);
     List_Append(&ui_menus, &kp_gang.entry);
+    List_Append(&ui_menus, &kp_demo.entry);
     List_Append(&ui_menus, &kp_options.entry);
     List_Append(&ui_menus, &kp_quit.entry);
 }

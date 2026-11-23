@@ -344,6 +344,9 @@ void UI_StatusEvent(const serverStatus_t *status)
     }
 
     Q_strlcpy(mod_dir, Info_ValueForKey(info, "game"), sizeof(mod_dir));
+    if (COM_IsWhite(mod_dir)) {
+        Q_strlcpy(mod_dir, Info_ValueForKey(info, "gamedir"), sizeof(mod_dir));
+    }
     Q_strlcpy(gamename, Info_ValueForKey(info, "gamename"), sizeof(gamename));
     Q_strlcpy(cashlimit, Info_ValueForKey(info, "cashlimit"), sizeof(cashlimit));
 
