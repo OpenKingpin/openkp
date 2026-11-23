@@ -236,6 +236,8 @@ static void GL_MarkLights_r(const mnode_t *node, const dlight_t *light, uint64_t
         for (i = 0, face = node->firstface; i < node->numfaces; i++, face++) {
             if (face->drawflags & gl_static.nolm_mask)
                 continue;
+            if (gl_specular->integer && face->texinfo && (face->texinfo->c.flags & SURF_SPECULAR))
+                continue;
             if (face->dlightframe != glr.dlightframe) {
                 face->dlightframe = glr.dlightframe;
                 face->dlightbits = 0;
@@ -437,6 +439,7 @@ void GL_DrawBspModel(mmodel_t *model)
     GL_BindArrays(VA_3D);
 
     GL_ClearSolidFaces();
+    GL_ClearReflectFaces();
 
     // draw visible faces
     for (i = 0, face = model->firstface; i < model->numfaces; i++, face++) {
@@ -462,12 +465,17 @@ void GL_DrawBspModel(mmodel_t *model)
         }
 
         GL_AddSolidFace(face);
+        if (gl_specular->integer && face->texinfo &&
+            (face->texinfo->c.flags & (SURF_REFLECT_FAKE | SURF_REFLECT_LIGHT)))
+            GL_AddReflectFace(face);
     }
 
     if (gl_dynamic->integer)
         GL_UploadLightmaps();
 
     GL_DrawSolidFaces();
+
+    GL_DrawReflectFaces();
 
     GL_Flush3D();
 
@@ -539,8 +547,12 @@ static inline void GL_DrawNode(const mnode_t *node)
 
         if (face->drawflags & SURF_TRANS_MASK)
             GL_AddAlphaFace(face);
-        else
+        else {
             GL_AddSolidFace(face);
+            if (gl_specular->integer && face->texinfo &&
+                (face->texinfo->c.flags & (SURF_REFLECT_FAKE | SURF_REFLECT_LIGHT)))
+                GL_AddReflectFace(face);
+        }
     }
 
     c.nodesDrawn++;
@@ -591,6 +603,7 @@ void GL_DrawWorld(void)
     GL_BindArrays(VA_3D);
 
     GL_ClearSolidFaces();
+    GL_ClearReflectFaces();
 
     GL_WorldNode_r(gl_static.world.cache->nodes,
                    gl_cull_nodes->integer ? NODE_CLIPPED : NODE_UNCLIPPED);
@@ -599,6 +612,8 @@ void GL_DrawWorld(void)
         GL_UploadLightmaps();
 
     GL_DrawSolidFaces();
+
+    GL_DrawReflectFaces();
 
     GL_Flush3D();
 

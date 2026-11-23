@@ -143,6 +143,9 @@ static void add_dynamic_lights(const mface_t *surf)
     float           *bl;
     int             i, smax, tmax, s, t;
 
+    if (gl_specular->integer && surf->texinfo && (surf->texinfo->c.flags & SURF_SPECULAR))
+        return;
+
     smax = surf->lm_width;
     tmax = surf->lm_height;
     s_scale = surf->lm_scale[0];
@@ -238,10 +241,12 @@ static void update_dynamic_lightmap(mface_t *surf)
     add_light_styles(surf);
 
     // add all the dynamic lights
-    if (surf->dlightframe == glr.dlightframe)
-        add_dynamic_lights(surf);
-    else
+    if (surf->dlightframe == glr.dlightframe) {
+        if (!(gl_specular->integer && surf->texinfo && (surf->texinfo->c.flags & SURF_SPECULAR)))
+            add_dynamic_lights(surf);
+    } else {
         surf->dlightframe = 0;
+    }
 
     // put into texture format
     put_blocklights(surf);
@@ -1110,14 +1115,23 @@ void GL_LoadWorld(const char *name)
 
     // register all texinfo
     for (i = 0, info = bsp->texinfo; i < bsp->numtexinfo; i++, info++) {
+        const char *name = info->name;
+
+        while (*name == '/' || *name == '\\')
+            name++;
+        if (!Q_strncasecmp(name, "textures/", 9) || !Q_strncasecmp(name, "textures\\", 9))
+            name += 9;
+        while (*name == '/' || *name == '\\')
+            name++;
+
         if (info->c.flags & SURF_SKY) {
             if (!gl_static.use_cubemaps) {
                 info->image = R_NOTEXTURE;
-            } else if (Q_stristr(info->name, "env/sky")) {
-                Q_concat(buffer, sizeof(buffer), "textures/", info->name, ".tga");
+            } else if (Q_stristr(name, "env/sky")) {
+                Q_concat(buffer, sizeof(buffer), "textures/", name, ".tga");
                 info->image = IMG_Find(buffer, IT_SKY, IF_REPEAT | IF_CLASSIC_SKY);
-            } else if (Q_stricmpn(info->name, CONST_STR_LEN("sky/")) == 0) {
-                Q_concat(buffer, sizeof(buffer), info->name, ".tga");
+            } else if (Q_stricmpn(name, CONST_STR_LEN("sky/")) == 0) {
+                Q_concat(buffer, sizeof(buffer), name, ".tga");
                 info->image = IMG_Find(buffer, IT_SKY, IF_CUBEMAP);
             } else {
                 info->image = R_SKYTEXTURE;
@@ -1126,7 +1140,7 @@ void GL_LoadWorld(const char *name)
             info->image = R_NOTEXTURE;
         } else {
             imageflags_t flags = (info->c.flags & SURF_WARP) ? IF_TURBULENT : IF_NONE;
-            Q_concat(buffer, sizeof(buffer), "textures/", info->name, ".wal");
+            Q_concat(buffer, sizeof(buffer), "textures/", name, ".tga");
             info->image = IMG_Find(buffer, IT_WALL, flags);
         }
     }

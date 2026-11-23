@@ -47,6 +47,7 @@ cvar_t *gl_coloredlightmaps;
 cvar_t *gl_lightmap_bits;
 cvar_t *gl_brightness;
 cvar_t *gl_dynamic;
+cvar_t *gl_specular;
 cvar_t *gl_dlight_falloff;
 cvar_t *gl_modulate_entities;
 cvar_t *gl_doublelight_entities;
@@ -1135,6 +1136,8 @@ static void GL_Register(void)
     gl_brightness->changed = gl_lightmap_changed;
     gl_dynamic = Cvar_Get("gl_dynamic", "1", 0);
     gl_dynamic->changed = gl_lightmap_changed;
+    gl_specular = Cvar_Get("gl_specular", "1", CVAR_ARCHIVE);
+    gl_specular->changed = gl_lightmap_changed;
     gl_dlight_falloff = Cvar_Get("gl_dlight_falloff", "1", 0);
     gl_modulate_entities = Cvar_Get("gl_modulate_entities", "1", 0);
     gl_modulate_entities->changed = gl_modulate_entities_changed;
@@ -1515,6 +1518,16 @@ r_opengl_config_t R_GetGLConfig(void)
     }
 
     return cfg;
+}
+
+/*
+===============
+R_GetDriverMask
+===============
+*/
+unsigned R_GetDriverMask(void)
+{
+    return gl_config.caps;
 }
 
 /*

@@ -22,6 +22,7 @@ static float    skyrotate;
 static bool     skyautorotate;
 static vec3_t   skyaxis;
 static GLuint   sky_images[6];
+char            gl_skyname[MAX_QPATH];
 
 static const vec3_t skyclip[6] = {
     { 1, 1, 0 },
@@ -428,6 +429,7 @@ static void R_UnsetSky(void)
 {
     int i;
 
+    gl_skyname[0] = '\0';
     skyrotate = 0;
     skyautorotate = false;
     for (i = 0; i < 6; i++)
@@ -447,6 +449,8 @@ void R_SetSky(const char *name, float rotate, bool autorotate, const vec3_t axis
     char            pathname[MAX_QPATH];
     const image_t   *image;
     imageflags_t    flags = IF_NONE;
+
+    Q_strlcpy(gl_skyname, name ? name : "", sizeof(gl_skyname));
 
     if (!gl_drawsky->integer) {
         R_UnsetSky();

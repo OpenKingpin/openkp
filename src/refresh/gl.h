@@ -245,6 +245,7 @@ extern cvar_t *gl_coloredlightmaps;
 extern cvar_t *gl_lightmap_bits;
 extern cvar_t *gl_brightness;
 extern cvar_t *gl_dynamic;
+extern cvar_t *gl_specular;
 extern cvar_t *gl_dlight_falloff;
 extern cvar_t *gl_modulate_entities;
 extern cvar_t *gl_doublelight_entities;
@@ -264,6 +265,7 @@ extern cvar_t *gl_bloom;
 // development variables
 extern cvar_t *gl_znear;
 extern cvar_t *gl_drawsky;
+extern char gl_skyname[MAX_QPATH];
 extern cvar_t *gl_showtris;
 #if USE_DEBUG
 extern cvar_t *gl_nobind;
@@ -936,6 +938,9 @@ void GL_AddSolidFace(mface_t *face);
 void GL_DrawAlphaFaces(void);
 void GL_DrawSolidFaces(void);
 void GL_ClearSolidFaces(void);
+void GL_ClearReflectFaces(void);
+void GL_AddReflectFace(const mface_t *face);
+void GL_DrawReflectFaces(void);
 
 /*
  * gl_world.c

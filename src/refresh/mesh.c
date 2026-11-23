@@ -647,7 +647,130 @@ static void bind_alias_arrays(const maliasmesh_t *mesh)
     }
 }
 
-static void draw_alias_mesh(const uint16_t *indices, int num_indices,
+static GLuint get_mesh_refl_texnum(void)
+{
+    static unsigned cached_reg_seq = 0;
+    static GLuint refl_texnum = 0;
+    static bool refl_valid = false;
+
+    if (refl_valid && cached_reg_seq == r_registration_sequence)
+        return refl_texnum;
+
+    cached_reg_seq = r_registration_sequence;
+    refl_valid = true;
+    refl_texnum = 0;
+
+    image_t *img = IMG_Find("textures/reflmap.tga", IT_WALL, IF_OPTIONAL);
+    if (img && img != R_NOTEXTURE && img->texnum) {
+        refl_texnum = img->texnum;
+        return refl_texnum;
+    }
+
+    img = IMG_Find("textures/specular.tga", IT_WALL, IF_OPTIONAL);
+    if (img && img != R_NOTEXTURE && img->texnum) {
+        refl_texnum = img->texnum;
+        return refl_texnum;
+    }
+
+    return 0;
+}
+
+static void calc_mesh_env_tcoords(const maliasmesh_t *mesh, maliastc_t *out_tc)
+{
+    const maliasvert_t *src_oldvert = &mesh->verts[oldframenum * mesh->numverts];
+    const maliasvert_t *src_newvert = &mesh->verts[newframenum * mesh->numverts];
+    vec3_t temp, local_vieworg;
+    vec3_t pos, normal, viewdir, reflected;
+
+    VectorSubtract(glr.fd.vieworg, glr.ent->origin, temp);
+    VectorRotate(temp, glr.entaxis, local_vieworg);
+
+    if (oldframenum == newframenum) {
+        for (int i = 0; i < mesh->numverts; i++) {
+            get_static_normal(normal, &src_newvert[i]);
+            pos[0] = src_newvert[i].pos[0] * newscale[0] + translate[0];
+            pos[1] = src_newvert[i].pos[1] * newscale[1] + translate[1];
+            pos[2] = src_newvert[i].pos[2] * newscale[2] + translate[2];
+
+            VectorSubtract(pos, local_vieworg, viewdir);
+            VectorNormalize(viewdir);
+
+            vec_t d = DotProduct(viewdir, normal);
+            VectorMA(viewdir, -2.0f * d, normal, reflected);
+
+            out_tc[i].st[0] = reflected[1] * 0.5f + 0.5f;
+            out_tc[i].st[1] = 0.5f - reflected[2] * 0.5f;
+        }
+    } else {
+        for (int i = 0; i < mesh->numverts; i++) {
+            get_lerped_normal(normal, &src_oldvert[i], &src_newvert[i]);
+            pos[0] = src_oldvert[i].pos[0] * oldscale[0] + src_newvert[i].pos[0] * newscale[0] + translate[0];
+            pos[1] = src_oldvert[i].pos[1] * oldscale[1] + src_newvert[i].pos[1] * newscale[1] + translate[1];
+            pos[2] = src_oldvert[i].pos[2] * oldscale[2] + src_newvert[i].pos[2] * newscale[2] + translate[2];
+
+            VectorSubtract(pos, local_vieworg, viewdir);
+            VectorNormalize(viewdir);
+
+            vec_t d = DotProduct(viewdir, normal);
+            VectorMA(viewdir, -2.0f * d, normal, reflected);
+
+            out_tc[i].st[0] = reflected[1] * 0.5f + 0.5f;
+            out_tc[i].st[1] = 0.5f - reflected[2] * 0.5f;
+        }
+    }
+}
+
+static void draw_mesh_env_pass(const maliasmesh_t *mesh,
+                               const uint16_t *indices, int num_indices,
+                               const maliastc_t *tcoords, int num_verts)
+{
+    static maliastc_t env_tcoords[TESS_MAX_VERTICES];
+    GLuint refl_texnum;
+
+    if (!gl_specular->integer || !mesh || !mesh->verts)
+        return;
+
+    if (num_verts > TESS_MAX_VERTICES)
+        return;
+
+    refl_texnum = get_mesh_refl_texnum();
+    if (!refl_texnum)
+        return;
+
+    calc_mesh_env_tcoords(mesh, env_tcoords);
+
+    glStateBits_t state = GLS_INTENSITY_ENABLE | GLS_BLEND_ADD | GLS_DEPTHMASK_FALSE | glr.fog_bits;
+    if (!gls.currentva)
+        state |= (meshbits & ~GLS_MESH_SHADE);
+
+    GL_StateBits(state);
+    GL_BindTexture(TMU_TEXTURE, refl_texnum);
+
+    uniform_mesh_color(color[0], color[1], color[2], color[3]);
+    GL_LoadUniforms();
+
+    if (gls.currentva) {
+        GL_ArrayBits(GLA_VERTEX | GLA_TC);
+        gl_backend->tex_coord_pointer((const GLfloat *)env_tcoords);
+    } else {
+        qglVertexAttribPointer(VERT_ATTR_MESH_TC, 2, GL_FLOAT, GL_FALSE, 0, env_tcoords);
+    }
+
+    qglDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_SHORT, indices);
+
+    if (gls.currentva) {
+        if (dotshading)
+            GL_ArrayBits(GLA_VERTEX | GLA_TC | GLA_COLOR);
+        else
+            GL_ArrayBits(GLA_VERTEX | GLA_TC);
+        gl_backend->tex_coord_pointer((const GLfloat *)tcoords);
+    } else {
+        qglVertexAttribPointer(VERT_ATTR_MESH_TC, 2, GL_FLOAT, GL_FALSE, 0, tcoords);
+    }
+}
+
+static void draw_alias_mesh(const maliasmesh_t *mesh,
+                            const uint16_t *indices, int num_indices,
                             const maliastc_t *tcoords, int num_verts,
                             image_t **skins, int num_skins)
 {
@@ -728,6 +851,9 @@ static void draw_alias_mesh(const uint16_t *indices, int num_indices,
     qglDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_SHORT, indices);
 
     draw_celshading(indices, num_indices);
+
+    if ((glr.ent->flags & RF_REFL_MAP) && !(glr.ent->flags & RF_SHELL_MASK))
+        draw_mesh_env_pass(mesh, indices, num_indices, tcoords, num_verts);
 
     if (gl_showtris->integer & SHOWTRIS_MESH)
         GL_DrawOutlines(num_indices, GL_UNSIGNED_SHORT, indices);
@@ -869,7 +995,7 @@ static void draw_skeleton_mesh(const md5_model_t *model, const md5_mesh_t *mesh,
     else
         tess_plain_skel(mesh, skel);
 
-    draw_alias_mesh(mesh->indices, mesh->num_indices,
+    draw_alias_mesh(NULL, mesh->indices, mesh->num_indices,
                     mesh->tcoords, mesh->num_verts,
                     model->skins, model->num_skins);
 }
@@ -1083,7 +1209,7 @@ void GL_DrawAliasModel(const model_t *model)
         if (ent->hidden_parts & BIT(mesh->subobject))
             continue;
         tessfunc(mesh);
-        draw_alias_mesh(mesh->indices, mesh->numindices,
+        draw_alias_mesh(mesh, mesh->indices, mesh->numindices,
                         mesh->tcoords, mesh->numverts,
                         mesh->skins, mesh->numskins);
     }

@@ -835,3 +835,196 @@ void GL_AddAlphaFace(mface_t *face)
     face->next = faces_alpha;
     faces_alpha = face;
 }
+
+#define MAX_REFLECT_FACES 2048
+static const mface_t *reflect_faces[MAX_REFLECT_FACES];
+static int num_reflect_faces = 0;
+
+void GL_ClearReflectFaces(void)
+{
+    num_reflect_faces = 0;
+}
+
+void GL_AddReflectFace(const mface_t *face)
+{
+    if (num_reflect_faces < MAX_REFLECT_FACES)
+        reflect_faces[num_reflect_faces++] = face;
+}
+
+static GLuint R_GetWorldReflectionTexnum(void)
+{
+    static char cached_skyname[MAX_QPATH];
+    static unsigned cached_reg_seq = 0;
+    static GLuint refl_texnum = 0;
+    static bool refl_valid = false;
+
+    if (refl_valid && !strcmp(cached_skyname, gl_skyname) && cached_reg_seq == r_registration_sequence)
+        return refl_texnum;
+
+    Q_strlcpy(cached_skyname, gl_skyname, sizeof(cached_skyname));
+    cached_reg_seq = r_registration_sequence;
+    refl_valid = true;
+    refl_texnum = 0;
+
+    image_t *img = NULL;
+    char path[MAX_QPATH];
+    char sky[MAX_QPATH];
+
+    Q_strlcpy(sky, gl_skyname, sizeof(sky));
+    COM_StripExtension(sky, sky, sizeof(sky));
+
+    if (sky[0]) {
+        if (Q_concat(path, sizeof(path), "env/", sky, "winrefl.tga") < sizeof(path)) {
+            img = IMG_Find(path, IT_WALL, IF_OPTIONAL);
+            if (img && img != R_NOTEXTURE && img->texnum) {
+                refl_texnum = img->texnum;
+                return refl_texnum;
+            }
+        }
+    }
+
+    img = IMG_Find("textures/reflmap.tga", IT_WALL, IF_OPTIONAL);
+    if (img && img != R_NOTEXTURE && img->texnum) {
+        refl_texnum = img->texnum;
+        return refl_texnum;
+    }
+
+    refl_texnum = TEXNUM_WHITE;
+    return refl_texnum;
+}
+
+static void GL_FlushReflectBatch(GLuint texnum)
+{
+    if (!tess.numindices)
+        return;
+
+    GL_BindTexture(TMU_TEXTURE, texnum);
+    GL_StateBits(GLS_BLEND_ADD | GLS_DEPTHMASK_FALSE | glr.fog_bits);
+    GL_ArrayBits(GLA_VERTEX | GLA_TC | GLA_COLOR);
+    GL_DrawIndexed(SHOWTRIS_WORLD);
+
+    tess.numverts = 0;
+    tess.numindices = 0;
+}
+
+static void get_local_vieworg(vec3_t out)
+{
+    if (!glr.ent || glr.ent == &gl_world) {
+        VectorCopy(glr.fd.vieworg, out);
+    } else if (glr.entrotated) {
+        vec3_t temp;
+        VectorSubtract(glr.fd.vieworg, glr.ent->origin, temp);
+        VectorRotate(temp, glr.entaxis, out);
+    } else {
+        VectorSubtract(glr.fd.vieworg, glr.ent->origin, out);
+    }
+}
+
+void GL_DrawReflectFaces(void)
+{
+    GLuint refl_texnum;
+    vec3_t local_vieworg;
+    const bsp_t *bsp;
+
+    if (!num_reflect_faces || !gl_specular->integer) {
+        num_reflect_faces = 0;
+        return;
+    }
+
+    refl_texnum = R_GetWorldReflectionTexnum();
+    if (!refl_texnum) {
+        num_reflect_faces = 0;
+        return;
+    }
+
+    bsp = gl_static.world.cache;
+    if (!bsp) {
+        num_reflect_faces = 0;
+        return;
+    }
+
+    GL_Flush3D();
+    GL_BindArrays(VA_EFFECT);
+    get_local_vieworg(local_vieworg);
+
+    for (int f = 0; f < num_reflect_faces; f++) {
+        const mface_t *face = reflect_faces[f];
+        int numverts = face->numsurfedges;
+        int numtris = numverts - 2;
+        vec3_t normal;
+        float alpha;
+        color_t col;
+        int firstvert;
+        vec_t *dst_vert;
+        glIndex_t *dst_indices;
+        const msurfedge_t *src_surfedge;
+
+        if (numverts < 3)
+            continue;
+
+        if (tess.numverts + numverts > TESS_MAX_VERTICES ||
+            tess.numindices + numtris * 3 > TESS_MAX_INDICES)
+            GL_FlushReflectBatch(refl_texnum);
+
+        if (face->drawflags & DSURF_PLANEBACK)
+            VectorNegate(face->plane->normal, normal);
+        else
+            VectorCopy(face->plane->normal, normal);
+
+        if (face->texinfo->c.flags & SURF_REFLECT_LIGHT)
+            alpha = (face->texinfo->c.flags & SURF_DIFFUSE) ? 0.38f : 0.3f;
+        else
+            alpha = (face->texinfo->c.flags & SURF_DIFFUSE) ? 0.15f : 0.1f;
+
+        col.u8[0] = 255;
+        col.u8[1] = 255;
+        col.u8[2] = 255;
+        col.u8[3] = (byte)(alpha * 255.0f);
+
+        firstvert = tess.numverts;
+        dst_vert = tess.vertices + tess.numverts * 6;
+        src_surfedge = face->firstsurfedge;
+
+        for (int i = 0; i < numverts; i++) {
+            const medge_t *src_edge = bsp->edges + src_surfedge->edge;
+            const mvertex_t *src_vert = bsp->vertices + src_edge->v[src_surfedge->vert];
+            src_surfedge++;
+
+            vec3_t vert;
+            VectorCopy(src_vert->point, vert);
+
+            vec3_t ray;
+            VectorSubtract(vert, local_vieworg, ray);
+            VectorNormalize(ray);
+
+            vec3_t reflected;
+            vec_t d = DotProduct(ray, normal);
+            VectorMA(ray, -2.0f * d, normal, reflected);
+
+            float s = 0.5f - reflected[1] * 0.5f;
+            float t = 0.5f - reflected[0] * 0.5f;
+
+            dst_vert[0] = vert[0];
+            dst_vert[1] = vert[1];
+            dst_vert[2] = vert[2];
+            dst_vert[3] = s;
+            dst_vert[4] = t;
+            WN32(dst_vert + 5, col.u32);
+            dst_vert += 6;
+        }
+        tess.numverts += numverts;
+
+        dst_indices = tess.indices + tess.numindices;
+        for (int i = 0; i < numtris; i++) {
+            dst_indices[0] = firstvert;
+            dst_indices[1] = firstvert + (i + 1);
+            dst_indices[2] = firstvert + (i + 2);
+            dst_indices += 3;
+        }
+        tess.numindices += numtris * 3;
+    }
+
+    GL_FlushReflectBatch(refl_texnum);
+    num_reflect_faces = 0;
+    GL_BindArrays(VA_3D);
+}

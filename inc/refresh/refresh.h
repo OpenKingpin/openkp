@@ -249,3 +249,4 @@ void    R_ModeChanged(int width, int height, int flags);
 bool    R_VideoSync(void);
 
 r_opengl_config_t R_GetGLConfig(void);
+unsigned R_GetDriverMask(void);
