@@ -31,6 +31,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <fcntl.h>
 
+#ifndef _WIN32
+#include <dirent.h>
+#endif
+
 #if USE_ZLIB
 #include <zlib.h>
 #endif
@@ -1309,6 +1313,60 @@ fail:
     return ret;
 }
 
+#ifndef _WIN32
+static int64_t open_case_insensitive(file_t *file, const char *base, const char *relpath)
+{
+    char cur[MAX_OSPATH];
+    const char *p = relpath;
+    DIR *d;
+    struct dirent *de;
+
+    if (Q_strlcpy(cur, base, sizeof(cur)) >= sizeof(cur))
+        return Q_ERR(ENAMETOOLONG);
+
+    while (*p) {
+        char seg[MAX_QPATH];
+        size_t seglen = 0;
+        bool found = false;
+
+        while (*p == '/')
+            p++;
+        if (!*p)
+            break;
+
+        while (p[seglen] && p[seglen] != '/' && seglen + 1 < sizeof(seg))
+            seglen++;
+        memcpy(seg, p, seglen);
+        seg[seglen] = 0;
+        p += seglen;
+
+        d = opendir(cur);
+        if (!d)
+            return Q_ERR(ENOENT);
+
+        while ((de = readdir(d)) != NULL) {
+            if (!Q_strcasecmp(de->d_name, seg)) {
+                size_t len = strlen(cur);
+                if (len + 1 + strlen(de->d_name) >= sizeof(cur)) {
+                    closedir(d);
+                    return Q_ERR(ENAMETOOLONG);
+                }
+                cur[len] = '/';
+                strcpy(cur + len + 1, de->d_name);
+                found = true;
+                break;
+            }
+        }
+        closedir(d);
+
+        if (!found)
+            return Q_ERR(ENOENT);
+    }
+
+    return open_from_disk(file, cur);
+}
+#endif
+
 // Finds the file in the search path.
 // Fills file_t and returns file length.
 // Used for streaming data out of either a pak file or a separate file.
@@ -1415,6 +1473,10 @@ static int64_t open_file_read(file_t *file, const char *normalized, size_t namel
                     memcpy(dot + 1, saved, 4);
                 }
             }
+
+            ret = open_case_insensitive(file, search->filename, normalized);
+            if (ret != Q_ERR(ENOENT))
+                return ret;
 #endif
         }
     }
@@ -1453,6 +1515,43 @@ static int64_t expand_open_file_read(file_t *file, const char *name)
                 return Q_ERR(ENAMETOOLONG);
             }
             ret = open_file_read(file, normalized, namelen);
+        }
+    }
+
+    if (ret == Q_ERR(ENOENT)) {
+        char alt[MAX_OSPATH];
+        size_t altlen = 0;
+
+        // Kingpin sound quirk 1: double .wav.wav extension
+        if (namelen > 8 && !Q_strcasecmp(normalized + namelen - 8, ".wav.wav")) {
+            altlen = namelen - 4;
+            memcpy(alt, normalized, altlen);
+            alt[altlen] = 0;
+            ret = open_file_read(file, alt, altlen);
+        }
+
+        // Kingpin sound quirk 2: actors/female/beth/ -> actors/female/beth_specific/
+        if (ret == Q_ERR(ENOENT)) {
+            const char *p = Q_strcasestr(normalized, "actors/female/beth/");
+            if (p) {
+                size_t prefix_len = (size_t)(p - normalized) + 18; // up to "beth"
+                altlen = Q_snprintf(alt, sizeof(alt), "%.*s_specific/%s",
+                                    (int)prefix_len, normalized, p + 19);
+                if (altlen < sizeof(alt))
+                    ret = open_file_read(file, alt, altlen);
+            }
+        }
+
+        // Kingpin sound quirk 3: actors/female/lisa/ -> actors/female/lisa_specific/
+        if (ret == Q_ERR(ENOENT)) {
+            const char *p = Q_strcasestr(normalized, "actors/female/lisa/");
+            if (p) {
+                size_t prefix_len = (size_t)(p - normalized) + 18; // up to "lisa"
+                altlen = Q_snprintf(alt, sizeof(alt), "%.*s_specific/%s",
+                                    (int)prefix_len, normalized, p + 19);
+                if (altlen < sizeof(alt))
+                    ret = open_file_read(file, alt, altlen);
+            }
         }
     }
 
@@ -2015,6 +2114,19 @@ int FS_RenameFile(const char *from, const char *to)
     if ((ret = build_absolute_path(topath, to)))
         return ret;
     if (rename(frompath, topath))
+        return Q_ERRNO;
+
+    return Q_ERR_SUCCESS;
+}
+
+int FS_RemoveFile(const char *path)
+{
+    char fullpath[MAX_OSPATH];
+    int ret;
+
+    if ((ret = build_absolute_path(fullpath, path)))
+        return ret;
+    if (unlink(fullpath))
         return Q_ERRNO;
 
     return Q_ERR_SUCCESS;
@@ -3568,149 +3680,6 @@ static void add_game_kpf(unsigned mode, const char *dir)
 #endif
 }
 
-static void append_search_path(searchpath_t *search)
-{
-    searchpath_t **tail;
-
-    search->next = NULL;
-    for (tail = &fs_searchpaths; *tail; tail = &(*tail)->next)
-        ;
-    *tail = search;
-}
-
-static void add_fallback_subfolder(unsigned mode, const char *base, const char *game)
-{
-    searchpath_t    *search;
-    pack_t          *pack;
-    listfiles_t     list;
-    int             i;
-    char            dirpath[MAX_OSPATH];
-    char            path[MAX_OSPATH];
-    size_t          len;
-
-    len = Q_concat(dirpath, sizeof(dirpath), base, "/", game);
-    if (len >= sizeof(dirpath))
-        return;
-
-    if (os_access(dirpath, F_OK) == -1)
-        return;
-
-#ifdef _WIN32
-    FS_ReplaceSeparators(dirpath, '/');
-#endif
-
-    // add directory to search path
-    search = FS_Malloc(sizeof(*search) + len);
-    search->mode = mode;
-    search->pack = NULL;
-    memcpy(search->filename, dirpath, len + 1);
-    append_search_path(search);
-
-    // add any pack files
-    memset(&list, 0, sizeof(list));
-#if USE_ZLIB
-    list.filter = ".pak;.pkz";
-#else
-    list.filter = ".pak";
-#endif
-    list.baselen = len + 1;
-    Sys_ListFiles_r(&list, dirpath, 0);
-    if (!list.count)
-        return;
-
-    qsort(list.files, list.count, sizeof(list.files[0]), pakcmp);
-
-    for (i = 0; i < list.count; i++) {
-        len = Q_concat(path, sizeof(path), dirpath, "/", list.files[i]);
-        if (len >= sizeof(path))
-            continue;
-#if USE_ZLIB
-        if (len > 4 && !Q_stricmp(path + len - 4, ".pkz"))
-            pack = load_zip_file(path);
-        else
-#endif
-            pack = load_pak_file(path);
-        if (!pack)
-            continue;
-        search = FS_Malloc(sizeof(*search));
-        search->mode = mode;
-        search->filename[0] = 0;
-        search->pack = pack_get(pack);
-        append_search_path(search);
-    }
-
-    for (i = 0; i < list.count; i++) {
-        Z_Free(list.files[i]);
-    }
-    Z_Free(list.files);
-}
-
-static void scan_and_add_subfolders(unsigned mode, const char *base)
-{
-    listfiles_t list;
-
-    if (!base || !base[0])
-        return;
-
-    memset(&list, 0, sizeof(list));
-    list.flags = FS_SEARCH_DIRSONLY;
-    list.baselen = strlen(base) + 1;
-    Sys_ListFiles_r(&list, base, 0);
-
-    for (int i = 0; i < list.count; i++) {
-        char *s = list.files[i];
-
-        if (COM_IsPath(s) && Q_stricmp(s, BASEGAME) != 0) {
-            char testpath[MAX_OSPATH];
-            bool has_assets = false;
-
-            // check for paks
-            listfiles_t paklist;
-            memset(&paklist, 0, sizeof(paklist));
-#if USE_ZLIB
-            paklist.filter = ".pak;.pkz";
-#else
-            paklist.filter = ".pak";
-#endif
-            Q_snprintf(testpath, sizeof(testpath), "%s/%s", base, s);
-            paklist.baselen = strlen(testpath) + 1;
-            Sys_ListFiles_r(&paklist, testpath, 0);
-            if (paklist.count > 0) {
-                has_assets = true;
-                for (int p = 0; p < paklist.count; p++)
-                    Z_Free(paklist.files[p]);
-                Z_Free(paklist.files);
-            }
-
-            if (!has_assets) {
-                const char *checkdirs[] = { "players", "models", "pics", "sound", "maps", "textures" };
-                for (size_t d = 0; d < sizeof(checkdirs)/sizeof(checkdirs[0]); d++) {
-                    Q_snprintf(testpath, sizeof(testpath), "%s/%s/%s", base, s, checkdirs[d]);
-                    if (os_access(testpath, F_OK) == 0) {
-                        has_assets = true;
-                        break;
-                    }
-                }
-            }
-
-            if (has_assets) {
-                add_fallback_subfolder(mode, base, s);
-            }
-        }
-        Z_Free(s);
-    }
-    Z_Free(list.files);
-}
-
-static void add_subfolder_paths(void)
-{
-    scan_and_add_subfolders(FS_PATH_BASE | FS_DIR_BASE, sys_basedir->string);
-
-    if (sys_homedir->string[0]) {
-        scan_and_add_subfolders(FS_PATH_BASE | FS_DIR_HOME, sys_homedir->string);
-    }
-}
-
 static void setup_base_paths(void)
 {
     const char *base = sys_basedir->string;
@@ -3723,8 +3692,6 @@ static void setup_base_paths(void)
         add_game_kpf(FS_PATH_BASE | FS_DIR_HOME, home);
         add_game_dir(FS_PATH_BASE | FS_DIR_HOME, home, BASEGAME, false);
     }
-
-    add_subfolder_paths();
 
     fs_base_searchpaths = fs_searchpaths;
 }

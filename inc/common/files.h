@@ -55,6 +55,7 @@ void    FS_AddConfigFiles(bool init);
 
 #if USE_CLIENT
 int FS_RenameFile(const char *from, const char *to);
+int FS_RemoveFile(const char *path);
 #endif
 
 int FS_CreatePath(char *path);
