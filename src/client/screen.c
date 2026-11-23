@@ -2520,13 +2520,13 @@ static void SCR_ExecuteLayoutString(const char *s)
             continue;
 
         if (!strcmp(token, "bagcash")) {
-            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && cl.kp_hud_mode == 0)
                 HUD_DrawKingpinBagCash();
             continue;
         }
 
         if (!strcmp(token, "teams")) {
-            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN)
+            if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && cl.kp_hud_mode == 0)
                 HUD_DrawKingpinTeams();
             continue;
         }
@@ -2798,6 +2798,9 @@ static void SCR_DrawStats(void)
     if (scr_draw2d->integer <= 1)
         return;
     if (cl.frame.ps.stats[STAT_LAYOUTS] & LAYOUTS_HIDE_HUD)
+        return;
+
+    if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && cl.kp_hud_mode == 2)
         return;
 
     int bar = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? CS_STATUSBAR_KP : CS_STATUSBAR;

@@ -970,23 +970,29 @@ static void CL_ParseKingpinTEnt(int type)
         te.type = TE_KP_FIRE_PARTICLES;
         break;
 
-    case 37:    // snow: position and four shorts
+    case TE_KP_SNOW:    // snow: position and four shorts
         CL_ReadPos(te.pos1);
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
-        te.type = TE_KP_NONE;
+        VectorSet(te.dir, 0, 0, 1);
+        te.count = 32;
+        te.color = 0;
+        te.type = TE_SPLASH;
         break;
 
-    case 38:    // rain: position and five shorts
+    case TE_KP_RAIN:    // rain: position and five shorts
         CL_ReadPos(te.pos1);
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
         MSG_ReadShort();
-        te.type = TE_KP_NONE;
+        VectorSet(te.dir, 0, 0, 1);
+        te.count = 32;
+        te.color = 0;
+        te.type = TE_SPLASH;
         break;
 
     case TE_KP_CONCUSSION_EXPLOSION:        // concussion (bazooka)
@@ -1021,40 +1027,43 @@ static void CL_ParseKingpinTEnt(int type)
         te.type = TE_KP_SMOKE_PARTICLES;
         break;
 
-    case 53:    // art burn: position, short size, four color bytes
+    case TE_KP_ART_BURN:    // art burn: position, short size, four color bytes
         CL_ReadPos(te.pos1);
         MSG_ReadShort();
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
-        te.type = TE_KP_NONE;
+        te.count = 16;
+        te.color = 0;
+        te.type = TE_KP_FIRE_PARTICLES;
         break;
 
-    case 54:    // fog brush
+    case TE_KP_FOG_BRUSH:    // fog brush: unfinished retail path, no effect
         CL_ReadPos(te.pos1);
         CL_ReadPos(te.pos2);
         te.type = TE_KP_NONE;
         break;
 
-    case 43:    // surface sprite: type, width, height, position, pitch, yaw
+    case TE_KP_SURFACE_SPRITE_ENTITY:    // surface sprite: type, width, height, position, pitch, yaw
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
         CL_ReadPos(te.pos1);
         MSG_ReadByte();
         MSG_ReadByte();
-        te.type = TE_KP_NONE;
+        te.type = TE_PLAIN_EXPLOSION;
         break;
 
-    case 55:    // gibs: position, direction, count, three scale bytes
+    case TE_KP_GIBS:    // gibs: position, direction, count, three scale bytes
         CL_ReadPos(te.pos1);
         MSG_ReadDir(te.dir);
         te.count = MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
         MSG_ReadByte();
-        te.type = TE_BLOOD;
+        te.color = 0;
+        te.type = TE_LASER_SPARKS;
         break;
 
     default:
@@ -1725,6 +1734,7 @@ void CL_ParseServerMessage(void)
             break;
 
         case svc_hud:
+            cl.kp_hud_mode = (cl.kp_hud_mode + 1) % 3;
             break;
 
         case svc_download:
@@ -1894,6 +1904,7 @@ bool CL_SeekDemoMessage(void)
             break;
 
         case svc_hud:
+            cl.kp_hud_mode = (cl.kp_hud_mode + 1) % 3;
             break;
 
         case svc_frame:

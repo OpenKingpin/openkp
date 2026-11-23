@@ -77,7 +77,7 @@ V_AddEntity
 */
 void V_AddEntity(const entity_t *ent)
 {
-    if (!ent->model && !(ent->flags & RF_BEAM))
+    if (!ent->model && !(ent->flags & (RF_BEAM | RF_FLARE)))
         return;
     if (r_numentities >= MAX_ENTITIES)
         return;
@@ -441,6 +441,28 @@ void V_RenderView(void)
             Vector4Clear(cl.refdef.screen_blend);
             Vector4Clear(cl.refdef.damage_blend);
         }
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            const char *den_str, *col_str;
+            if (R_GetDriverMask() & (BIT(0) | BIT(1))) {
+                den_str = cl.kp_fog[2];
+                col_str = cl.kp_fog[3];
+            } else {
+                den_str = cl.kp_fog[0];
+                col_str = cl.kp_fog[1];
+            }
+
+            float density = 0.0f;
+            if (den_str && *den_str)
+                density = Q_atof(den_str);
+
+            vec3_t color = { 0, 0, 0 };
+            if (col_str && *col_str)
+                sscanf(col_str, "%f %f %f", &color[0], &color[1], &color[2]);
+
+            cl.refdef.fog.density = density;
+            VectorCopy(color, cl.refdef.fog.color);
+        }
+
         if (cl.custom_fog.density) {
             cl.refdef.fog = cl.custom_fog;
             cl.refdef.heightfog = (player_heightfog_t){ 0 };
