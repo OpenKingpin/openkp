@@ -126,12 +126,10 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG="${{ github.ref_name }}"
             CHANNEL="latest"
-            IS_PRERELEASE=false
             TITLE="OpenKP ${{ github.ref_name }}"
           else
             TAG="nightly"
             CHANNEL="nightly"
-            IS_PRERELEASE=true
             TITLE="OpenKP Nightly (r${REV})"
           fi
 
@@ -163,7 +161,6 @@ jobs:
 
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
-          echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
           echo "title=$TITLE" >> $GITHUB_OUTPUT
           echo "rev=$REV" >> $GITHUB_OUTPUT
           echo "sha=$SHA" >> $GITHUB_OUTPUT
@@ -195,8 +192,8 @@ jobs:
             * **Windows (64-bit)**: `openkp-windows-x64.zip` / `openkp.exe`
             * **Linux (64-bit)**: `openkp-linux-x86_64.tar.gz` / `openkp`
             * **Manifest**: `version.json` (used by OpenKP in-game auto-updater)
-          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
-          make_latest: ${{ steps.meta.outputs.prerelease == 'false' }}
+          prerelease: false
+          make_latest: true
           files: |
             release-files/openkp.exe
             release-files/openkp-windows-x64.zip
