@@ -170,10 +170,19 @@ jobs:
           echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
           echo "date=$DATE" >> $GITHUB_OUTPUT
 
+      - name: Reset Rolling Nightly Release & Tag
+        if: steps.meta.outputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --yes || true
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/nightly" || true
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.meta.outputs.title }}
           body: |
             ### OpenKP Automated Build
