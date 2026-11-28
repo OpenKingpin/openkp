@@ -22,6 +22,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "client.h"
 #include "format/md2.h"
+#include "format/mdx.h"
 #include "format/sp2.h"
 
 typedef enum {
@@ -478,10 +479,10 @@ void CL_HandleDownload(const byte *data, int size, int percent, int decompressed
         Com_Error(ERR_DROP, "%s: no download requested", __func__);
     }
 
-    // -1 size means download was aborted
+    // -1 size means download was aborted or file does not exist on server
     if (size == -1) {
         if (!percent) {
-            finish_udp_download("FAIL");
+            finish_udp_download("NOT ON SERVER");
         } else {
             finish_udp_download("STOP");
         }
@@ -670,6 +671,36 @@ static void check_skins(const char *name)
         }
         break;
 
+    case MDX_IDENT: {
+        const dmdxheader_t *mdxheader = (const dmdxheader_t *)model;
+        const char *mdxskin;
+
+        if (len < sizeof(*mdxheader) ||
+            LittleLong(mdxheader->ident) != MDX_IDENT ||
+            LittleLong(mdxheader->version) != MDX_VERSION) {
+            goto done;
+        }
+
+        num_skins = LittleLong(mdxheader->num_skins);
+        ofs_skins = LittleLong(mdxheader->ofs_skins);
+        end_skins = ofs_skins + num_skins * MDX_MAX_SKINNAME;
+        if (num_skins > MDX_MAX_SKINS || end_skins < ofs_skins || end_skins > len) {
+            goto done;
+        }
+
+        mdxskin = (const char *)model + ofs_skins;
+        for (i = 0; i < num_skins; i++) {
+            if (!Q_memccpy(fn, mdxskin, 0, sizeof(fn))) {
+                goto done;
+            }
+            if (fn[0]) {
+                check_file(fn, DL_OTHER);
+            }
+            mdxskin += MDX_MAX_SKINNAME;
+        }
+        break;
+    }
+
     case SP2_IDENT:
         // sprite model
         sp2header = (dsp2header_t *)model;
@@ -782,6 +813,166 @@ static void queue_kingpin_file(const char *name, dltype_t type)
         Com_DPrintf("%s: %s: %s\n", __func__, name, Q_ErrorString(ret));
 }
 
+static void kp_next_token(const char **cursor, char *out, size_t size)
+{
+    const char *p = *cursor;
+    size_t len = 0;
+
+    while (*p == ' ' || *p == '\t')
+        p++;
+    while (*p && *p != ' ' && *p != '\t') {
+        if (len + 1 < size)
+            out[len++] = *p;
+        p++;
+    }
+    out[len] = 0;
+    *cursor = p;
+}
+
+static void check_kingpin_part_skin(const char *model, const char *folder,
+                                    const char *part, const char *code)
+{
+    char tga[MAX_QPATH], pcx[MAX_QPATH], alt[MAX_QPATH];
+    const char *slash;
+
+    if (!code[0])
+        return;
+
+    if (!folder || !folder[0])
+        folder = NULL;
+
+    slash = strrchr(code, '/');
+    if (slash) {
+        char subdir[MAX_QPATH];
+        const char *skinname = slash + 1;
+        size_t dirlen = (size_t)(slash - code);
+
+        if (dirlen >= sizeof(subdir))
+            dirlen = sizeof(subdir) - 1;
+        memcpy(subdir, code, dirlen);
+        subdir[dirlen] = 0;
+
+        if (folder) {
+            if (Q_snprintf(tga, sizeof(tga), "%s/%s/%s_%s.tga", folder, subdir, part, skinname) >= (int)sizeof(tga))
+                return;
+            if (Q_snprintf(pcx, sizeof(pcx), "%s/%s/%s_%s.pcx", folder, subdir, part, skinname) >= (int)sizeof(pcx))
+                return;
+            if (FS_FileExists(tga) || FS_FileExists(pcx))
+                return;
+        } else {
+            if (Q_snprintf(tga, sizeof(tga), "players/%s/%s/%s_%s.tga", model, subdir, part, skinname) >= (int)sizeof(tga))
+                return;
+            if (Q_snprintf(pcx, sizeof(pcx), "players/%s/%s/%s_%s.pcx", model, subdir, part, skinname) >= (int)sizeof(pcx))
+                return;
+        }
+
+        if (Q_snprintf(alt, sizeof(alt), "players/%s/%s/%s_%s.tga", model, subdir, part, skinname) < (int)sizeof(alt) &&
+            FS_FileExists(alt))
+            return;
+        if (Q_snprintf(alt, sizeof(alt), "players/%s/%s/%s_%s.pcx", model, subdir, part, skinname) < (int)sizeof(alt) &&
+            FS_FileExists(alt))
+            return;
+    } else {
+        if (folder) {
+            if (Q_snprintf(tga, sizeof(tga), "%s/%s_%s.tga", folder, part, code) >= (int)sizeof(tga))
+                return;
+            if (Q_snprintf(pcx, sizeof(pcx), "%s/%s_%s.pcx", folder, part, code) >= (int)sizeof(pcx))
+                return;
+            if (FS_FileExists(tga) || FS_FileExists(pcx))
+                return;
+            if (Q_snprintf(alt, sizeof(alt), "%s/%s.tga", folder, code) < (int)sizeof(alt) &&
+                FS_FileExists(alt))
+                return;
+            if (Q_snprintf(alt, sizeof(alt), "%s/%s.pcx", folder, code) < (int)sizeof(alt) &&
+                FS_FileExists(alt))
+                return;
+        } else {
+            if (Q_snprintf(tga, sizeof(tga), "players/%s/%s_%s.tga", model, part, code) >= (int)sizeof(tga))
+                return;
+            if (Q_snprintf(pcx, sizeof(pcx), "players/%s/%s_%s.pcx", model, part, code) >= (int)sizeof(pcx))
+                return;
+        }
+
+        if (Q_snprintf(alt, sizeof(alt), "players/%s/%s_%s.tga", model, part, code) < (int)sizeof(alt) &&
+            FS_FileExists(alt))
+            return;
+        if (Q_snprintf(alt, sizeof(alt), "players/%s/%s_%s.pcx", model, part, code) < (int)sizeof(alt) &&
+            FS_FileExists(alt))
+            return;
+    }
+
+    queue_kingpin_file(tga, DL_OTHER);
+    queue_kingpin_file(pcx, DL_OTHER);
+}
+
+static void check_kingpin_player(const char *name)
+{
+    const char *spec, *slash, *cursor;
+    char model[MAX_QPATH];
+    char head_code[MAX_QPATH], body_code[MAX_QPATH], legs_code[MAX_QPATH];
+    char head_dir[MAX_QPATH], body_dir[MAX_QPATH], legs_dir[MAX_QPATH];
+    char fn[MAX_QPATH];
+    size_t len;
+    int i;
+
+    spec = strchr(name, '\\');
+    spec = spec ? spec + 1 : name;
+
+    slash = strchr(spec, '/');
+    if (!slash || slash == spec)
+        return;
+
+    len = (size_t)(slash - spec);
+    if (len >= sizeof(model))
+        len = sizeof(model) - 1;
+    memcpy(model, spec, len);
+    model[len] = 0;
+
+    if (!COM_IsPath(model))
+        return;
+
+    cursor = slash + 1;
+    kp_next_token(&cursor, head_code, sizeof(head_code));
+    kp_next_token(&cursor, body_code, sizeof(body_code));
+    kp_next_token(&cursor, legs_code, sizeof(legs_code));
+
+    static const char *const parts[3] = { "head", "body", "legs" };
+    for (i = 0; i < 3; i++) {
+        len = Q_concat(fn, sizeof(fn), "players/", model, "/", parts[i], ".mdx");
+        if (len < sizeof(fn))
+            queue_kingpin_file(fn, DL_OTHER);
+    }
+
+    // Queue only weapon models referenced by the server's model configstrings (#w_*.mdx)
+    for (i = 2; i < cl.csr.max_models; i++) {
+        const char *mname = cl.configstrings[cl.csr.models + i];
+        if (!mname[0])
+            break;
+        if (mname[0] != '#' || !mname[1])
+            continue;
+        len = Q_concat(fn, sizeof(fn), "players/", model, "/", mname + 1);
+        if (len < sizeof(fn))
+            queue_kingpin_file(fn, DL_OTHER);
+    }
+
+    len = Q_concat(fn, sizeof(fn), "players/", model, "/skinfolder.txt");
+    if (len < sizeof(fn))
+        queue_kingpin_file(fn, DL_OTHER);
+
+    CL_KingpinSkinDirs(model, head_dir, body_dir, legs_dir, sizeof(head_dir));
+
+    if (head_code[0] && !body_code[0]) {
+        len = Q_concat(fn, sizeof(fn), "players/", model, "/", head_code, "/skinfolder.txt");
+        if (len < sizeof(fn))
+            queue_kingpin_file(fn, DL_OTHER);
+        return;
+    }
+
+    check_kingpin_part_skin(model, head_dir, "head", head_code);
+    check_kingpin_part_skin(model, body_dir, "body", body_code);
+    check_kingpin_part_skin(model, legs_dir, "legs", legs_code);
+}
+
 static void CL_RequestKingpinDownloads(void)
 {
     int i, pass;
@@ -850,6 +1041,29 @@ static void CL_RequestKingpinDownloads(void)
             Com_DPrintf("%s: waiting for downloads...\n", __func__);
             return;
         }
+
+        if (allow_download_models->integer) {
+            for (i = 2; i < cl.csr.max_models; i++) {
+                const char *name = cl.configstrings[cl.csr.models + i];
+
+                if (!name[0])
+                    break;
+                if (name[0] == '*' || name[0] == '#')
+                    continue;
+                check_skins(name);
+            }
+        }
+
+        if (allow_download_players->integer) {
+            for (i = 0; i < MAX_CLIENTS; i++) {
+                const char *name = cl.configstrings[cl.csr.playerskins + i];
+
+                if (!name[0])
+                    continue;
+                check_kingpin_player(name);
+            }
+        }
+
         precache_check = PRECACHE_MAP;
         // fall through
 

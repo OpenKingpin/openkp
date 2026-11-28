@@ -167,8 +167,11 @@ void CL_KingpinSkinDirs(const char *model, char *head, char *body, char *legs, s
                     dst = legs;
                 if (dst) {
                     s = p + 5;
+                    while (s < eol && (*s == ' ' || *s == '\t'))
+                        s++;
                     n = (size_t)(eol - s);
-                    while (n && (s[n - 1] == '\r' || s[n - 1] == ' '))
+                    while (n && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t' ||
+                                 s[n - 1] == '/' || s[n - 1] == '\\'))
                         n--;
                     if (n >= size)
                         n = size - 1;
