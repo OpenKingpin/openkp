@@ -389,9 +389,9 @@ static void setup_color(void)
         GL_LightPoint(origin, color);
 
         // Kingpin entity lighting flags:
-        // RF_DIMLIGHT forces a subdued 25% grey ambient lighting level, used by Kingpin
+        // RF_KP_DIMLIGHT forces a subdued 25% grey ambient lighting level, used by Kingpin
         // for certain dark objects or shaded props regardless of light grid samples.
-        if (flags & RF_DIMLIGHT) {
+        if (flags & RF_KP_DIMLIGHT) {
             VectorSet(color, 0.25f, 0.25f, 0.25f);
         } else if (flags & RF_MINLIGHT) {
             f = VectorLength(color);
@@ -725,47 +725,60 @@ static void draw_mesh_env_pass(const maliasmesh_t *mesh,
                                const maliastc_t *tcoords, int num_verts)
 {
     static maliastc_t env_tcoords[TESS_MAX_VERTICES];
+    const float env_scale = 0.25f;
     GLuint refl_texnum;
 
-    if (!gl_specular->integer || !mesh || !mesh->verts)
-        return;
-
-    if (num_verts > TESS_MAX_VERTICES)
+    if (!gl_specular->integer || !mesh)
         return;
 
     refl_texnum = get_mesh_refl_texnum();
     if (!refl_texnum)
         return;
 
-    calc_mesh_env_tcoords(mesh, env_tcoords);
-
-    glStateBits_t state = GLS_INTENSITY_ENABLE | GLS_BLEND_ADD | GLS_DEPTHMASK_FALSE | glr.fog_bits;
-    if (!gls.currentva)
-        state |= (meshbits & ~GLS_MESH_SHADE);
-
-    GL_StateBits(state);
-    GL_BindTexture(TMU_TEXTURE, refl_texnum);
-
-    uniform_mesh_color(color[0], color[1], color[2], color[3]);
-    GL_LoadUniforms();
+    glStateBits_t state = GLS_BLEND_ADD | GLS_DEPTHMASK_FALSE | glr.fog_bits;
 
     if (gls.currentva) {
+        if (!mesh->verts || num_verts > TESS_MAX_VERTICES)
+            return;
+
+        calc_mesh_env_tcoords(mesh, env_tcoords);
+
+        GL_StateBits(state);
+        GL_BindTexture(TMU_TEXTURE, refl_texnum);
+
+        uniform_mesh_color(color[0] * env_scale, color[1] * env_scale, color[2] * env_scale, color[3]);
+        GL_LoadUniforms();
+
         GL_ArrayBits(GLA_VERTEX | GLA_TC);
         gl_backend->tex_coord_pointer((const GLfloat *)env_tcoords);
-    } else {
-        qglVertexAttribPointer(VERT_ATTR_MESH_TC, 2, GL_FLOAT, GL_FALSE, 0, env_tcoords);
-    }
 
-    qglDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_SHORT, indices);
+        qglDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_SHORT, indices);
 
-    if (gls.currentva) {
         if (dotshading)
             GL_ArrayBits(GLA_VERTEX | GLA_TC | GLA_COLOR);
         else
             GL_ArrayBits(GLA_VERTEX | GLA_TC);
         gl_backend->tex_coord_pointer((const GLfloat *)tcoords);
+        uniform_mesh_color(color[0], color[1], color[2], color[3]);
     } else {
-        qglVertexAttribPointer(VERT_ATTR_MESH_TC, 2, GL_FLOAT, GL_FALSE, 0, tcoords);
+        vec3_t temp, local_vieworg;
+
+        VectorSubtract(glr.fd.vieworg, glr.ent->origin, temp);
+        VectorRotate(temp, glr.entaxis, local_vieworg);
+
+        state |= (meshbits & ~(GLS_MESH_SHADE | GLS_MESH_SHELL)) | GLS_MESH_ENV;
+
+        GL_StateBits(state);
+        GL_BindTexture(TMU_TEXTURE, refl_texnum);
+
+        VectorCopy(local_vieworg, gls.u_block.mesh.shadedir);
+        uniform_mesh_color(color[0] * env_scale, color[1] * env_scale, color[2] * env_scale, color[3]);
+        GL_LoadUniforms();
+
+        qglDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_SHORT, indices);
+
+        VectorCopy(shadedir, gls.u_block.mesh.shadedir);
+        uniform_mesh_color(color[0], color[1], color[2], color[3]);
     }
 }
 
@@ -852,7 +865,7 @@ static void draw_alias_mesh(const maliasmesh_t *mesh,
 
     draw_celshading(indices, num_indices);
 
-    if ((glr.ent->flags & RF_REFL_MAP) && !(glr.ent->flags & RF_SHELL_MASK))
+    if ((glr.ent->flags & RF_KP_REFL_MAP) && !(glr.ent->flags & RF_SHELL_MASK))
         draw_mesh_env_pass(mesh, indices, num_indices, tcoords, num_verts);
 
     if (gl_showtris->integer & SHOWTRIS_MESH)

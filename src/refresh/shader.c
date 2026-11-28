@@ -261,7 +261,7 @@ static void write_mesh_shader(sizebuf_t *buf, glStateBits_t bits)
     if (bits & GLS_FOG_HEIGHT)
         GLSL(out vec3 v_world_pos;)
 
-    if (bits & (GLS_MESH_SHELL | GLS_MESH_SHADE))
+    if (bits & (GLS_MESH_SHELL | GLS_MESH_SHADE | GLS_MESH_ENV))
         write_getnormal(buf);
 
     if (bits & GLS_MESH_SHADE)
@@ -271,7 +271,7 @@ static void write_mesh_shader(sizebuf_t *buf, glStateBits_t bits)
     GLSL(v_tc = a_tc;)
 
     if (bits & GLS_MESH_LERP) {
-        if (bits & (GLS_MESH_SHELL | GLS_MESH_SHADE))
+        if (bits & (GLS_MESH_SHELL | GLS_MESH_SHADE | GLS_MESH_ENV))
             GLSL(
                 vec3 old_norm = get_normal(a_old_pos.w);
                 vec3 new_norm = get_normal(a_new_pos.w);
@@ -282,18 +282,33 @@ static void write_mesh_shader(sizebuf_t *buf, glStateBits_t bits)
         if (bits & GLS_MESH_SHELL)
             GLSL(pos += normalize((old_norm * u_backlerp + new_norm * u_frontlerp)) * u_shellscale;)
 
+        if (bits & GLS_MESH_ENV)
+            GLSL(
+                vec3 env_norm = normalize(old_norm * u_backlerp + new_norm * u_frontlerp);
+                vec3 env_dir = normalize(pos - u_shadedir.xyz);
+                vec3 env_refl = reflect(env_dir, env_norm);
+                v_tc = vec2(env_refl.y * 0.5 + 0.5, 0.5 - env_refl.z * 0.5);
+            )
+
         if (bits & GLS_MESH_SHADE)
             GLSL(v_color = vec4(u_color.rgb * (shadedot(old_norm) * u_backlerp + shadedot(new_norm) * u_frontlerp), u_color.a);)
         else
             GLSL(v_color = u_color;)
     } else {
-        if (bits & (GLS_MESH_SHELL | GLS_MESH_SHADE))
+        if (bits & (GLS_MESH_SHELL | GLS_MESH_SHADE | GLS_MESH_ENV))
             GLSL(vec3 norm = get_normal(a_new_pos.w);)
 
         GLSL(vec3 pos = vec3(a_new_pos.xyz) * u_new_scale + u_translate;)
 
         if (bits & GLS_MESH_SHELL)
             GLSL(pos += norm * u_shellscale;)
+
+        if (bits & GLS_MESH_ENV)
+            GLSL(
+                vec3 env_dir = normalize(pos - u_shadedir.xyz);
+                vec3 env_refl = reflect(env_dir, norm);
+                v_tc = vec2(env_refl.y * 0.5 + 0.5, 0.5 - env_refl.z * 0.5);
+            )
 
         if (bits & GLS_MESH_SHADE)
             GLSL(v_color = vec4(u_color.rgb * shadedot(norm), u_color.a);)

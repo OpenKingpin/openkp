@@ -741,7 +741,7 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
         V_AddEntity(ent);
 
         if (s1->effects & EF_COLOR_SHELL) {
-            uint64_t sflags = s1->renderfx & RF_SHELL_MASK;
+            uint64_t sflags = s1->renderfx & RF_SHELL_MASK_KP;
             if (!sflags)
                 sflags = RF_SHELL_RED;
             entity_t shell_ent = *ent;
@@ -750,7 +750,7 @@ static void CL_AddKingpinPlayer(entity_t *ent, const centity_state_t *s1)
             V_AddEntity(&shell_ent);
         }
     } else if (s1->effects & EF_COLOR_SHELL) {
-        uint64_t sflags = s1->renderfx & RF_SHELL_MASK;
+        uint64_t sflags = s1->renderfx & RF_SHELL_MASK_KP;
         if (!sflags)
             sflags = RF_SHELL_RED;
         for (i = 0; i < 3; i++) {
@@ -863,6 +863,19 @@ static void CL_AddPacketEntities(void)
 
         effects = s1->effects;
         renderfx = s1->renderfx;
+
+        bool kp_dimlight = false;
+        bool kp_refl = false;
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            if (renderfx & RF_DIMLIGHT) {
+                kp_dimlight = true;
+                renderfx &= ~RF_DIMLIGHT;
+            }
+            if ((renderfx & RF_REFL_MAP) || (effects & EF_KP_REFL)) {
+                kp_refl = true;
+                renderfx &= ~RF_REFL_MAP;
+            }
+        }
 
         // set frame
         if (effects & EF_ANIM01)
@@ -1216,8 +1229,11 @@ static void CL_AddPacketEntities(void)
             custom_flags |= RF_TRACKER;
         }
 
-        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN && (effects & EF_KP_REFL)) {
-            ent.flags |= RF_REFL_MAP;
+        if (cls.serverProtocol == PROTOCOL_VERSION_KINGPIN) {
+            if (kp_dimlight)
+                ent.flags |= RF_KP_DIMLIGHT;
+            if (kp_refl)
+                ent.flags |= RF_KP_REFL_MAP;
         }
 
         ent.scale = s1->scale;
@@ -1504,7 +1520,8 @@ static int shell_effect_hack(const centity_t *ent)
         if (ent->current.morefx & EFX_DUALFIRE)
             flags |= RF_SHELL_LITE_GREEN;
         if (ent->current.effects & EF_COLOR_SHELL) {
-            int shell = ent->current.renderfx & RF_SHELL_MASK;
+            int mask = cls.serverProtocol == PROTOCOL_VERSION_KINGPIN ? RF_SHELL_MASK_KP : RF_SHELL_MASK;
+            int shell = ent->current.renderfx & mask;
             flags |= shell ? shell : RF_SHELL_RED;
         }
     }
