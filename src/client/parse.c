@@ -1046,13 +1046,14 @@ static void CL_ParseKingpinTEnt(int type)
         break;
 
     case TE_KP_SURFACE_SPRITE_ENTITY:    // surface sprite: type, width, height, position, pitch, yaw
-        MSG_ReadByte();
-        MSG_ReadByte();
-        MSG_ReadByte();
+        te.color = MSG_ReadByte();       // surface sprite type (1 = bullet hole, 5 = blood)
+        te.entity1 = MSG_ReadByte();     // width
+        te.entity2 = MSG_ReadByte();     // height
         CL_ReadPos(te.pos1);
-        MSG_ReadByte();
-        MSG_ReadByte();
-        te.type = TE_PLAIN_EXPLOSION;
+        te.dir[PITCH] = MSG_ReadByte() * (360.0f / 256.0f);
+        te.dir[YAW] = MSG_ReadByte() * (360.0f / 256.0f);
+        te.dir[ROLL] = 0;
+        te.type = TE_KP_SURFACE_SPRITE;
         break;
 
     case TE_KP_GIBS:    // gibs: position, direction, count, three scale bytes

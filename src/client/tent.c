@@ -54,6 +54,8 @@ qhandle_t   cl_mod_heatbeam;
 qhandle_t   cl_mod_muzzles[MFLASH_TOTAL];
 
 qhandle_t   cl_img_flare;
+static qhandle_t    cl_img_bullet;
+static qhandle_t    cl_img_blood;
 
 static cvar_t   *cl_muzzleflashes;
 static cvar_t   *cl_hit_markers;
@@ -529,11 +531,106 @@ void CL_RegisterTEntModels(void)
         cl_mod_muzzles[i] = R_RegisterModel(va("models/weapons/%s/flash/tris.md2", muzzlenames[i]));
 
     cl_img_flare = R_RegisterImage("misc/flare.tga", IT_SPRITE, IF_DEFAULT_FLARE);
+    cl_img_bullet = R_RegisterImage("sprites/bullet1.tga", IT_SPRITE, IF_OPTIONAL);
+    cl_img_blood = R_RegisterImage("sprites/bld_pl.tga", IT_SPRITE, IF_OPTIONAL);
 
     // check for remaster powerscreen model (ugly!)
     len = FS_LoadFile("models/items/armor/effect/tris.md2", &data);
     cl.need_powerscreen_scale = len == 2300 && Com_BlockChecksum(data, len) == 0x19fca65b;
     FS_FreeFile(data);
+}
+
+/*
+==============================================================
+
+KINGPIN SURFACE DECAL MANAGEMENT
+
+==============================================================
+*/
+
+#define MAX_SURFACE_DECALS      256
+#define SURFACE_DECAL_LIFETIME  25000
+#define SURFACE_DECAL_FADETIME  3000
+
+typedef struct {
+    qhandle_t   skin;
+    vec3_t      origin;
+    vec3_t      angles;
+    float       width;
+    float       height;
+    int         start_time;
+    int         end_time;
+} kp_surface_decal_t;
+
+static kp_surface_decal_t   cl_surface_decals[MAX_SURFACE_DECALS];
+static int                  cl_surface_decal_head;
+
+static void CL_ClearSurfaceDecals(void)
+{
+    memset(cl_surface_decals, 0, sizeof(cl_surface_decals));
+    cl_surface_decal_head = 0;
+}
+
+static void CL_AddKingpinSurfaceSprite(int sprite_type, int width, int height,
+                                       const vec3_t pos, const vec3_t angles)
+{
+    qhandle_t skin = 0;
+
+    if (sprite_type == 1) {
+        skin = cl_img_bullet;
+    } else if (sprite_type == 5) {
+        skin = cl_img_blood;
+    } else {
+        return;
+    }
+
+    if (!skin)
+        return;
+
+    kp_surface_decal_t *d = &cl_surface_decals[cl_surface_decal_head];
+    cl_surface_decal_head = (cl_surface_decal_head + 1) % MAX_SURFACE_DECALS;
+
+    d->skin = skin;
+    VectorCopy(pos, d->origin);
+    VectorCopy(angles, d->angles);
+    d->angles[ROLL] = (float)(Q_rand() % 360);
+    d->width = (width > 0) ? (float)width : 5.0f;
+    d->height = (height > 0) ? (float)height : d->width;
+    d->start_time = cl.time;
+    d->end_time = cl.time + SURFACE_DECAL_LIFETIME;
+}
+
+static void CL_AddSurfaceDecals(void)
+{
+    entity_t ent;
+
+    memset(&ent, 0, sizeof(ent));
+    ent.flags = RF_KP_SURFACE_DECAL | RF_TRANSLUCENT;
+
+    for (int i = 0; i < MAX_SURFACE_DECALS; i++) {
+        kp_surface_decal_t *d = &cl_surface_decals[i];
+        int remaining;
+
+        if (!d->skin)
+            continue;
+
+        remaining = d->end_time - cl.time;
+        if (remaining <= 0) {
+            d->skin = 0;
+            continue;
+        }
+
+        ent.skin = d->skin;
+        VectorCopy(d->origin, ent.origin);
+        VectorCopy(d->angles, ent.angles);
+        ent.scale = d->width;
+        ent.oldorigin[0] = d->height;
+        ent.alpha = (remaining < SURFACE_DECAL_FADETIME)
+                    ? ((float)remaining / (float)SURFACE_DECAL_FADETIME)
+                    : 1.0f;
+
+        V_AddEntity(&ent);
+    }
 }
 
 /*
@@ -1900,6 +1997,10 @@ void CL_ParseTEnt(void)
         CL_SteamKP(te.pos1, te.dir, te.count);
         break;
 
+    case TE_KP_SURFACE_SPRITE:
+        CL_AddKingpinSurfaceSprite(te.color, te.entity1, te.entity2, te.pos1, te.dir);
+        break;
+
     case TE_KP_NONE:
         break;
 
@@ -1929,6 +2030,7 @@ void CL_AddTEnts(void)
     CL_AddExplosions();
     CL_ProcessSustain();
     CL_AddLasers();
+    CL_AddSurfaceDecals();
 }
 
 /*
@@ -1942,6 +2044,7 @@ void CL_ClearTEnts(void)
     CL_ClearExplosions();
     CL_ClearLasers();
     CL_ClearSustains();
+    CL_ClearSurfaceDecals();
 }
 
 void CL_InitTEnts(void)

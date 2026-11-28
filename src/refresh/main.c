@@ -427,6 +427,55 @@ static void GL_DrawSpriteModel(const model_t *model)
     GL_UnlockArrays();
 }
 
+static void GL_DrawSurfaceDecal(void)
+{
+    const entity_t *e = glr.ent;
+    const image_t *image = IMG_ForHandle(e->skin);
+    const float alpha = (e->flags & RF_TRANSLUCENT) ? e->alpha : 1.0f;
+    const float half_w = (e->scale > 0.0f ? e->scale : 5.0f) * 0.5f;
+    const float half_h = (e->oldorigin[0] > 0.0f ? e->oldorigin[0] : (half_w * 2.0f)) * 0.5f;
+    glStateBits_t bits = GLS_DEPTHMASK_FALSE | GLS_BLEND_BLEND | GLS_CULL_DISABLE | glr.fog_bits;
+    vec3_t forward, right, up, org, left_v, right_v, down_v, up_v, color;
+
+    if (!image || image == R_NOTEXTURE)
+        return;
+
+    AngleVectors(e->angles, forward, right, up);
+    VectorMA(e->origin, 0.25f, forward, org);
+
+    GL_LightPoint(org, color);
+
+    GL_LoadMatrix(glr.viewmatrix);
+    GL_LoadUniforms();
+    GL_BindTexture(TMU_TEXTURE, image->texnum);
+    GL_BindArrays(VA_SPRITE);
+    GL_StateBits(bits);
+    GL_ArrayBits(GLA_VERTEX | GLA_TC);
+    GL_Color(Q_clipf(color[0], 0.25f, 1.0f),
+             Q_clipf(color[1], 0.25f, 1.0f),
+             Q_clipf(color[2], 0.25f, 1.0f),
+             alpha);
+
+    VectorScale(right, -half_w, left_v);
+    VectorScale(right,  half_w, right_v);
+    VectorScale(up,    -half_h, down_v);
+    VectorScale(up,     half_h, up_v);
+
+    VectorAdd3(org, down_v, left_v,  tess.vertices);
+    VectorAdd3(org, up_v,   left_v,  tess.vertices +  5);
+    VectorAdd3(org, down_v, right_v, tess.vertices + 10);
+    VectorAdd3(org, up_v,   right_v, tess.vertices + 15);
+
+    tess.vertices[ 3] = 0; tess.vertices[ 4] = 1;
+    tess.vertices[ 8] = 0; tess.vertices[ 9] = 0;
+    tess.vertices[13] = 1; tess.vertices[14] = 1;
+    tess.vertices[18] = 1; tess.vertices[19] = 0;
+
+    GL_LockArrays(4);
+    qglDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    GL_UnlockArrays();
+}
+
 static void GL_DrawNullModel(void)
 {
     const entity_t *e = glr.ent;
@@ -620,6 +669,12 @@ static void GL_DrawEntities(entity_t *ent)
 
         // convert angles to axis
         GL_SetEntityAxis();
+
+        // Kingpin surface-aligned decal (bullet holes, blood splats)
+        if (ent->flags & RF_KP_SURFACE_DECAL) {
+            GL_DrawSurfaceDecal();
+            continue;
+        }
 
         // inline BSP model
         if (ent->model & BIT(31)) {
