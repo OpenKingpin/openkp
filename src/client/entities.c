@@ -1582,6 +1582,12 @@ static void CL_AddViewWeapon(void)
     ps = CL_KEYPS;
     ops = CL_OLDKEYPS;
 
+    // Kingpin servers hide the view weapon (e.g. 3rd-person spectator chasecam)
+    // by setting ps->gunindex = 0 without clearing ps->gun_parts.
+    if (!gun_model && !(ps->gunindex & GUNINDEX_MASK)) {
+        return;
+    }
+
     memset(&gun, 0, sizeof(gun));
 
     // set up gun position

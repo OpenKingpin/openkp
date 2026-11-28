@@ -258,7 +258,9 @@ static void CL_PredictWeaponAudioKingpin(void)
 {
     // 1. Weapon draw / switch cocking sound
     int current_gun_model = 0;
-    if (cl.frame.ps.gun_parts[0].modelindex > 0 && cl.frame.ps.gun_parts[0].modelindex < cl.csr.max_models) {
+    if ((cl.frame.ps.gunindex & GUNINDEX_MASK) &&
+        cl.frame.ps.gun_parts[0].modelindex > 0 &&
+        cl.frame.ps.gun_parts[0].modelindex < cl.csr.max_models) {
         current_gun_model = cl.frame.ps.gun_parts[0].modelindex;
     }
 
